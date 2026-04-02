@@ -98,3 +98,28 @@ func resolverThrowsHelpfulErrorForUnknownEmail() throws {
         _ = try ProfileDirectoryResolver.resolveDirectory(preferredEmail: "work@example.com", catalog: catalog)
     }
 }
+
+@Test
+func configManagerSavesAndReloadsNormalizedConfig() throws {
+    let fileManager = FileManager.default
+    let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
+    let manager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
+
+    defer {
+        try? fileManager.removeItem(at: directoryURL)
+    }
+
+    let config = ChooseBrowserConfig(
+        defaultProfileEmail: " personal@example.com ",
+        rules: [
+            URLRule(pattern: " https://example.com/* ", profileEmail: " work@example.com ")
+        ]
+    )
+
+    try manager.save(config: config)
+    let reloaded = try manager.loadOrCreate(defaultProfileEmail: nil)
+
+    #expect(reloaded.defaultProfileEmail == "personal@example.com")
+    #expect(reloaded.rules == [URLRule(pattern: "https://example.com/*", profileEmail: "work@example.com")])
+}

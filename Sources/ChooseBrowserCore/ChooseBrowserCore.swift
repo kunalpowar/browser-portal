@@ -8,6 +8,13 @@ public struct URLRule: Codable, Equatable, Sendable {
         self.pattern = pattern
         self.profileEmail = profileEmail
     }
+
+    func normalized() -> URLRule {
+        URLRule(
+            pattern: pattern.trimmingCharacters(in: .whitespacesAndNewlines),
+            profileEmail: profileEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
 }
 
 public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
@@ -22,6 +29,13 @@ public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
     public func matchingRule(for url: URL) -> URLRule? {
         let candidate = url.absoluteString
         return rules.first { WildcardMatcher.matches($0.pattern, value: candidate) }
+    }
+
+    func normalized() -> ChooseBrowserConfig {
+        ChooseBrowserConfig(
+            defaultProfileEmail: defaultProfileEmail?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNilIfEmpty,
+            rules: rules.map { $0.normalized() }
+        )
     }
 }
 
@@ -178,6 +192,17 @@ public final class ConfigManager {
         }
     }
 
+    public func save(config: ChooseBrowserConfig) throws {
+        try fileManager.createDirectory(
+            at: configurationFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let normalizedConfig = config.normalized()
+        try validate(config: normalizedConfig)
+        try write(config: normalizedConfig)
+    }
+
     public static func defaultConfigurationFileURL(fileManager: FileManager = .default) -> URL {
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         return homeDirectory
@@ -192,6 +217,18 @@ public final class ConfigManager {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(config)
         try data.write(to: configurationFileURL, options: .atomic)
+    }
+
+    private func validate(config: ChooseBrowserConfig) throws {
+        for (index, rule) in config.rules.enumerated() {
+            if rule.pattern.trimmedNilIfEmpty == nil {
+                throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a URL pattern.")
+            }
+
+            if rule.profileEmail.trimmedNilIfEmpty == nil {
+                throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a profile email.")
+            }
+        }
     }
 }
 
@@ -339,6 +376,16 @@ public final class BrowserRouter {
         configManager.configurationFileURL
     }
 
+    public func loadConfig() throws -> ChooseBrowserConfig {
+        let catalog = try availableProfiles()
+        let defaultEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
+        return try configManager.loadOrCreate(defaultProfileEmail: defaultEmail)
+    }
+
+    public func saveConfig(_ config: ChooseBrowserConfig) throws {
+        try configManager.save(config: config)
+    }
+
     public func availableProfiles() throws -> ChromeProfileCatalog {
         let environment = try ChromeEnvironment.discover(fileManager: fileManager)
         return try environment.loadProfileCatalog(fileManager: fileManager)
@@ -348,8 +395,7 @@ public final class BrowserRouter {
     public func open(url: URL) throws -> BrowserRoutingDecision {
         let environment = try ChromeEnvironment.discover(fileManager: fileManager)
         let catalog = try environment.loadProfileCatalog(fileManager: fileManager)
-        let defaultEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
-        let config = try configManager.loadOrCreate(defaultProfileEmail: defaultEmail)
+        let config = try loadConfig()
         let matchedRule = config.matchingRule(for: url)
         let preferredEmail = matchedRule?.profileEmail ?? config.defaultProfileEmail
         let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(

@@ -4,6 +4,8 @@ ChooseBrowser is a tiny macOS URL handler that always opens links in Google Chro
 
 It is meant to become your default browser app on macOS. When any `http` or `https` URL is opened, macOS launches ChooseBrowser, ChooseBrowser matches the URL against your rules, and then launches Chrome with the right profile directory.
 
+If you launch `ChooseBrowser.app` directly, it opens a configuration window where you can add, remove, and save rules.
+
 ## What it does
 
 - Supports Google Chrome only.
