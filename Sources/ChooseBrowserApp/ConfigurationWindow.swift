@@ -219,53 +219,46 @@ struct ConfigurationView: View {
     @ObservedObject var viewModel: ConfigurationViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            defaultBrowserSection
-            defaultProfileSection
-            rulesSection
-            footer
+        TabView {
+            routingTab
+                .tabItem {
+                    Label("Rules", systemImage: "list.bullet.rectangle")
+                }
+
+            advancedTab
+                .tabItem {
+                    Label("Advanced", systemImage: "slider.horizontal.3")
+                }
         }
-        .padding(20)
         .frame(minWidth: 820, minHeight: 560)
-        .onChange(of: viewModel.defaultProfileEmail) { _ in
-            viewModel.saveDefaultProfileIfNeeded()
-        }
     }
 
-    private var defaultBrowserSection: some View {
-        GroupBox {
-            HStack(alignment: .center, spacing: 14) {
-                Image(systemName: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange)
+    private var routingTab: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
 
-                VStack(alignment: .leading, spacing: 4) {
-                    if viewModel.defaultBrowserStatus.isDefaultForWebLinks {
-                        Text("ChooseBrowser is currently your default browser for web links.")
-                            .font(.headline)
-                        Text("macOS should route normal http and https links through this app.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("ChooseBrowser is not your default browser yet.")
-                            .font(.headline)
-                        Text("To make profile routing work from other apps, set ChooseBrowser as the Default web browser in System Settings > Desktop & Dock.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                if !viewModel.defaultBrowserStatus.isDefaultForWebLinks {
-                    Button("Open Settings") {
-                        viewModel.openDefaultBrowserSettings()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+            if !viewModel.defaultBrowserStatus.isDefaultForWebLinks {
+                defaultBrowserWarningSection
             }
+
+            rulesSection
+        }
+        .padding(20)
+    }
+
+    private var advancedTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                defaultProfileSection
+                defaultBrowserDetailsSection
+                appDataSection
+                actionsSection
+            }
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Default Browser")
+        }
+        .onChange(of: viewModel.defaultProfileEmail) { _ in
+            viewModel.saveDefaultProfileIfNeeded()
         }
     }
 
@@ -275,15 +268,33 @@ struct ConfigurationView: View {
                 .font(.system(size: 28, weight: .semibold))
             Text("Paste a URL prefix, pick the Chrome profile, and click +. Plain URLs match deeper paths automatically. Use * and ? only when you want advanced matching.")
                 .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Text(viewModel.configPath)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .foregroundStyle(.secondary)
-                Button("Reveal in Finder") {
-                    viewModel.revealConfigInFinder()
+        }
+    }
+
+    private var defaultBrowserWarningSection: some View {
+        GroupBox {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.orange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ChooseBrowser is not your default browser yet.")
+                        .font(.headline)
+                    Text("To make profile routing work from other apps, set ChooseBrowser as the Default web browser in System Settings > Desktop & Dock.")
+                        .foregroundStyle(.secondary)
                 }
+
+                Spacer()
+
+                Button("Open Settings") {
+                    viewModel.openDefaultBrowserSettings()
+                }
+                .buttonStyle(.borderedProminent)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Action Needed")
         }
     }
 
@@ -306,6 +317,32 @@ struct ConfigurationView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Text("Default Behavior")
+        }
+    }
+
+    private var defaultBrowserDetailsSection: some View {
+        GroupBox {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "ChooseBrowser is the current default browser." : "ChooseBrowser is not the current default browser.")
+                        .font(.headline)
+                    Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "Normal http and https links should route through this app." : "Use System Settings to make macOS send links here first.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Open Settings") {
+                    viewModel.openDefaultBrowserSettings()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Default Browser")
         }
     }
 
@@ -349,9 +386,32 @@ struct ConfigurationView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private var footer: some View {
-        HStack(alignment: .center) {
+    private var appDataSection: some View {
+        GroupBox {
             VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.configPath)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button("Reveal in Finder") {
+                        viewModel.revealConfigInFinder()
+                    }
+                    Button("Reload") {
+                        viewModel.load()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("App Data")
+        }
+    }
+
+    private var actionsSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
@@ -359,19 +419,19 @@ struct ConfigurationView: View {
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Spacer()
-
-            Button("Reload") {
-                viewModel.load()
+                HStack(spacing: 10) {
+                    Button("Quit") {
+                        viewModel.quitApplication()
+                    }
+                    Button("Uninstall") {
+                        viewModel.requestUninstall()
+                    }
+                }
             }
-            Button("Quit") {
-                viewModel.quitApplication()
-            }
-            Button("Uninstall") {
-                viewModel.requestUninstall()
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Actions")
         }
     }
 

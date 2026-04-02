@@ -39,11 +39,10 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        installStatusItem()
-
         let launchURLs = CommandLine.arguments.dropFirst().compactMap(URL.init(string:))
         if !launchURLs.isEmpty {
             route(urls: launchURLs)
+            ensureBackgroundPresence()
             return
         }
 
@@ -72,6 +71,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         route(
             urls: [url]
         )
+        ensureBackgroundPresence()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -79,6 +79,10 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installStatusItem() {
+        guard statusItem == nil else {
+            return
+        }
+
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "ChooseBrowser")
         statusItem.button?.toolTip = "ChooseBrowser"
@@ -87,13 +91,18 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
     }
 
+    private func ensureBackgroundPresence() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        installStatusItem()
+    }
+
     @objc
     private func openConfigurationFromStatusItem(_ sender: Any?) {
         showConfigurationWindow()
     }
 
     private func showConfigurationWindow() {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        ensureBackgroundPresence()
 
         if configurationWindowController == nil {
             configurationWindowController = ConfigurationWindowController(
@@ -151,7 +160,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func present(error: Error) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        ensureBackgroundPresence()
 
         let alert = NSAlert()
         alert.alertStyle = .warning
