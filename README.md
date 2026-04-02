@@ -1,22 +1,59 @@
 # ChooseBrowser
 
-ChooseBrowser is a tiny macOS URL handler that always opens links in Google Chrome, but picks the Chrome profile from rules you define.
+ChooseBrowser is a tiny macOS utility that catches web links, matches them against your rules, and re-opens them in the correct Google Chrome profile.
 
-It is meant to become your default browser app on macOS. When any `http` or `https` URL is opened, macOS launches ChooseBrowser, ChooseBrowser matches the URL against your rules, and then launches Chrome with the right profile directory.
+The whole point is simple: if a link belongs to work, open it in your work Chrome profile. If it belongs to personal stuff, open it in your personal profile. No browser chooser, no manual switching, no extra clicks.
 
-ChooseBrowser now behaves like a menu bar utility. If you launch `ChooseBrowser.app` directly, it opens a configuration window where you can add, remove, and save rules. After launch, it stays in the menu bar, and clicking the menu bar icon reopens the window.
+## Personal Note
 
-## What it does
+This is a personal project.
+
+It was written entirely with AI assistance, and it has only been tested on macOS so far.
+
+If you use it, treat it like a practical side-project tool rather than polished production software.
+
+## What It Does
 
 - Supports Google Chrome only.
-- Maps URL wildcard patterns to Chrome profile emails.
-- Reads the actual Chrome profile directory names from Chrome's `Local State` file, so you can configure rules with stable emails instead of `Profile 3`.
-- Creates a starter config automatically on first run.
-- Stays in the macOS menu bar so it can keep handling links in the background.
+- Routes `http` and `https` links based on user-defined rules.
+- Maps rules to Chrome profiles using profile email addresses instead of brittle names like `Profile 3`.
+- Runs as a lightweight menu bar utility.
+- Opens a native macOS config window when launched directly.
 
-## Config
+## How It Works
 
-The config file lives at:
+1. macOS sends a web link to ChooseBrowser.
+2. ChooseBrowser checks your saved rules from top to bottom.
+3. It resolves the matching email to the real Chrome profile directory.
+4. It launches Chrome with that profile and opens the URL.
+
+## Rule Matching
+
+Rules are matched in order. The first match wins.
+
+Plain URLs are treated as prefixes.
+
+That means this rule:
+
+```text
+https://gitlab.com/eslfaceitgroup
+```
+
+will also match:
+
+```text
+https://gitlab.com/eslfaceitgroup/project
+https://gitlab.com/eslfaceitgroup/another-repo/-/issues
+```
+
+If you want explicit wildcard matching, you can also use:
+
+- `*` for any number of characters
+- `?` for a single character
+
+## Config File
+
+ChooseBrowser stores its config here:
 
 ```text
 ~/Library/Application Support/ChooseBrowser/config.json
@@ -26,64 +63,65 @@ Example:
 
 ```json
 {
-  "defaultProfileEmail": "kunalpowar1203@gmail.com",
+  "defaultProfileEmail": "personal@example.com",
   "rules": [
     {
       "pattern": "https://mail.google.com/*",
-      "profileEmail": "kunal@stronk.works"
+      "profileEmail": "work@example.com"
     },
     {
-      "pattern": "https://*.stronk.works/*",
-      "profileEmail": "kunal@stronk.works"
+      "pattern": "https://gitlab.com/my-company",
+      "profileEmail": "work@example.com"
     },
     {
       "pattern": "https://github.com/my-personal-org/*",
-      "profileEmail": "kunalpowar1203@gmail.com"
+      "profileEmail": "personal@example.com"
     }
   ]
 }
 ```
 
-Rules are evaluated in order. The first matching pattern wins.
+## Install
 
-Plain URLs are treated as prefixes. For example, `https://gitlab.com/eslfaceitgroup` will also match deeper paths under that prefix. Use `*` and `?` only when you want explicit wildcard matching.
-
-Pattern syntax:
-
-- `*` matches any number of characters.
-- `?` matches a single character.
-- Match against the full URL string.
-
-## Build and install
+Build and install the app:
 
 ```bash
 ./scripts/install.sh
 ```
 
-That installs the app to `~/Applications/ChooseBrowser.app`.
+This installs:
 
-You can also just build the app bundle without installing it:
+```text
+~/Applications/ChooseBrowser.app
+```
+
+After that, set `ChooseBrowser` as your default browser in macOS System Settings.
+
+ChooseBrowser also shows a warning in the app UI if it is not currently set as the default browser.
+
+## Build Only
+
+If you only want the app bundle:
 
 ```bash
 ./scripts/build-app.sh
 ```
 
-To uninstall the installed app and remove its local config data:
+## Uninstall
+
+To remove the installed app and its local config:
 
 ```bash
 ./scripts/uninstall.sh
 ```
 
-The in-app configuration window also includes an uninstall button.
+The app UI also includes an uninstall option.
+
 If ChooseBrowser is your current default browser, switch macOS back to another browser after uninstalling it.
 
-## Set it as your default browser
+## Helpful Commands
 
-After installing, set `ChooseBrowser` as the default browser app in macOS System Settings.
-
-## Helpful commands
-
-List Chrome profiles and the emails currently attached to them:
+List detected Chrome profiles:
 
 ```bash
 .build/release/ChooseBrowser --list-profiles
@@ -100,3 +138,11 @@ Test a URL manually:
 ```bash
 .build/release/ChooseBrowser https://mail.google.com
 ```
+
+## Current Scope
+
+- macOS only
+- Chrome only
+- Built for one machine first, then cleaned up
+
+That narrow scope is intentional. This tool is meant to do one job well.
