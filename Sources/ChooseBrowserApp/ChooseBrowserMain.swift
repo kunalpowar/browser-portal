@@ -84,8 +84,8 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "ChooseBrowser")
-        statusItem.button?.toolTip = "ChooseBrowser"
+        statusItem.button?.image = NSImage(systemSymbolName: "globe", accessibilityDescription: AppIdentity.displayName)
+        statusItem.button?.toolTip = AppIdentity.displayName
         statusItem.button?.target = self
         statusItem.button?.action = #selector(openConfigurationFromStatusItem(_:))
         self.statusItem = statusItem
@@ -133,8 +133,8 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private func confirmAndUninstall() {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Uninstall ChooseBrowser?"
-        alert.informativeText = "This removes ChooseBrowser.app from Applications and deletes its local configuration data. Your git repo will be left alone."
+        alert.messageText = "Uninstall \(AppIdentity.displayName)?"
+        alert.informativeText = "This removes \(AppIdentity.displayName).app from Applications and deletes its local configuration data. Your git repo will be left alone."
         alert.addButton(withTitle: "Uninstall")
         alert.addButton(withTitle: "Cancel")
 
@@ -164,7 +164,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "ChooseBrowser couldn't open the link"
+        alert.messageText = "\(AppIdentity.displayName) couldn't open the link"
         alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: "OK")
 

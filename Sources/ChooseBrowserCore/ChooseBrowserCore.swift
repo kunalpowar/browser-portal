@@ -1,5 +1,13 @@
 import Foundation
 
+public enum AppIdentity {
+    public static let displayName = "Browser Portal"
+    public static let executableName = "BrowserPortal"
+    public static let supportDirectoryName = "BrowserPortal"
+    public static let legacySupportDirectoryName = "ChooseBrowser"
+    public static let bundleIdentifier = "app.browserportal.mac"
+}
+
 public struct URLRule: Codable, Equatable, Sendable {
     public let pattern: String
     public let profileEmail: String
@@ -130,9 +138,9 @@ public enum ChooseBrowserError: LocalizedError {
 
             return "No Chrome profile with email \(email) was found. Available emails: \(availableEmails.joined(separator: ", "))."
         case let .cannotLaunchChrome(url):
-            return "ChooseBrowser could not launch Chrome for \(url.absoluteString)."
+            return "\(AppIdentity.displayName) could not launch Chrome for \(url.absoluteString)."
         case let .uninstallFailed(message):
-            return "ChooseBrowser could not uninstall itself. \(message)"
+            return "\(AppIdentity.displayName) could not uninstall itself. \(message)"
         }
     }
 }
@@ -191,6 +199,8 @@ public final class ConfigManager {
     }
 
     public func loadOrCreate(defaultProfileEmail: String?) throws -> ChooseBrowserConfig {
+        try migrateLegacyConfigIfNeeded()
+
         let directoryURL = configurationFileURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
@@ -223,11 +233,25 @@ public final class ConfigManager {
     }
 
     public static func defaultConfigurationFileURL(fileManager: FileManager = .default) -> URL {
+        configurationFileURL(
+            directoryName: AppIdentity.supportDirectoryName,
+            fileManager: fileManager
+        )
+    }
+
+    public static func legacyConfigurationFileURL(fileManager: FileManager = .default) -> URL {
+        configurationFileURL(
+            directoryName: AppIdentity.legacySupportDirectoryName,
+            fileManager: fileManager
+        )
+    }
+
+    private static func configurationFileURL(directoryName: String, fileManager: FileManager) -> URL {
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         return homeDirectory
             .appending(path: "Library", directoryHint: .isDirectory)
             .appending(path: "Application Support", directoryHint: .isDirectory)
-            .appending(path: "ChooseBrowser", directoryHint: .isDirectory)
+            .appending(path: directoryName, directoryHint: .isDirectory)
             .appending(path: "config.json", directoryHint: .notDirectory)
     }
 
@@ -248,6 +272,23 @@ public final class ConfigManager {
                 throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a profile email.")
             }
         }
+    }
+
+    private func migrateLegacyConfigIfNeeded() throws {
+        guard !fileManager.fileExists(atPath: configurationFileURL.fileSystemPath) else {
+            return
+        }
+
+        let legacyConfigurationFileURL = Self.legacyConfigurationFileURL(fileManager: fileManager)
+        guard fileManager.fileExists(atPath: legacyConfigurationFileURL.fileSystemPath) else {
+            return
+        }
+
+        try fileManager.createDirectory(
+            at: configurationFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.copyItem(at: legacyConfigurationFileURL, to: configurationFileURL)
     }
 }
 
@@ -511,14 +552,14 @@ public struct CommandLineInterface {
 
     private var helpText: String {
         """
-        ChooseBrowser
+        \(AppIdentity.displayName)
 
         Usage:
-          ChooseBrowser --list-profiles
-          ChooseBrowser --print-config-path
-          ChooseBrowser <url> [more urls...]
+          \(AppIdentity.executableName) --list-profiles
+          \(AppIdentity.executableName) --print-config-path
+          \(AppIdentity.executableName) <url> [more urls...]
 
-        When run without arguments inside the app bundle, ChooseBrowser waits for macOS URL events.
+        When run without arguments inside the app bundle, \(AppIdentity.displayName) waits for macOS URL events.
         """
     }
 }

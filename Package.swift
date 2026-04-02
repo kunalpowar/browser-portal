@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "choose-browser",
+    name: "browser-portal",
     platforms: [
         .macOS(.v13),
     ],
@@ -13,7 +13,7 @@ let package = Package(
             targets: ["ChooseBrowserCore"]
         ),
         .executable(
-            name: "ChooseBrowser",
+            name: "BrowserPortal",
             targets: ["ChooseBrowserApp"]
         ),
     ],

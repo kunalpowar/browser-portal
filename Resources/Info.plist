@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>ChooseBrowser</string>
+    <string>Browser Portal</string>
     <key>CFBundleExecutable</key>
-    <string>ChooseBrowser</string>
+    <string>BrowserPortal</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.kunalpowar.choosebrowser</string>
+    <string>app.browserportal.mac</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleName</key>
-    <string>ChooseBrowser</string>
+    <string>Browser Portal</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

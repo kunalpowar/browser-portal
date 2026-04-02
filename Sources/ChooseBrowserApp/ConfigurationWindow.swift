@@ -19,7 +19,7 @@ final class ConfigurationWindowController: NSWindowController {
 
         let hostingController = NSHostingController(rootView: ConfigurationView(viewModel: viewModel))
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "ChooseBrowser"
+        window.title = AppIdentity.displayName
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 920, height: 640))
         window.minSize = NSSize(width: 820, height: 560)
@@ -100,7 +100,7 @@ final class ConfigurationViewModel: ObservableObject {
             draftProfileEmail = config.defaultProfileEmail ?? profileOptions.first?.email ?? ""
 
             if knownEmails.isEmpty {
-                statusMessage = "ChooseBrowser could not find signed-in Chrome profile emails yet."
+                statusMessage = "\(AppIdentity.displayName) could not find signed-in Chrome profile emails yet."
             } else {
                 statusMessage = "Loaded \(rules.count) rule" + (rules.count == 1 ? "." : "s.")
             }
@@ -264,7 +264,7 @@ struct ConfigurationView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ChooseBrowser")
+            Text(AppIdentity.displayName)
                 .font(.system(size: 28, weight: .semibold))
             Text("Paste a URL prefix, pick the Chrome profile, and click +. Plain URLs match deeper paths automatically. Use * and ? only when you want advanced matching.")
                 .foregroundStyle(.secondary)
@@ -279,9 +279,9 @@ struct ConfigurationView: View {
                     .foregroundStyle(.orange)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("ChooseBrowser is not your default browser yet.")
+                    Text("\(AppIdentity.displayName) is not your default browser yet.")
                         .font(.headline)
-                    Text("To make profile routing work from other apps, set ChooseBrowser as the Default web browser in System Settings > Desktop & Dock.")
+                    Text("To make profile routing work from other apps, set \(AppIdentity.displayName) as the Default web browser in System Settings > Desktop & Dock.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -328,7 +328,7 @@ struct ConfigurationView: View {
                     .foregroundStyle(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "ChooseBrowser is the current default browser." : "ChooseBrowser is not the current default browser.")
+                    Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "\(AppIdentity.displayName) is the current default browser." : "\(AppIdentity.displayName) is not the current default browser.")
                         .font(.headline)
                     Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "Normal http and https links should route through this app." : "Use System Settings to make macOS send links here first.")
                         .foregroundStyle(.secondary)
