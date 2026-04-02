@@ -10,6 +10,13 @@ func wildcardMatcherSupportsBasicGlobPatterns() {
 }
 
 @Test
+func ruleMatcherTreatsPlainUrlsAsPrefixes() {
+    #expect(RuleMatcher.matches("https://gitlab.com/eslfaceitgroup", value: "https://gitlab.com/eslfaceitgroup"))
+    #expect(RuleMatcher.matches("https://gitlab.com/eslfaceitgroup", value: "https://gitlab.com/eslfaceitgroup/browser/repo"))
+    #expect(!RuleMatcher.matches("https://gitlab.com/eslfaceitgroup", value: "https://gitlab.com/other-group/project"))
+}
+
+@Test
 func configReturnsFirstMatchingRule() throws {
     let config = ChooseBrowserConfig(
         defaultProfileEmail: "personal@example.com",

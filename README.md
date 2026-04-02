@@ -46,6 +46,8 @@ Example:
 
 Rules are evaluated in order. The first matching pattern wins.
 
+Plain URLs are treated as prefixes. For example, `https://gitlab.com/eslfaceitgroup` will also match deeper paths under that prefix. Use `*` and `?` only when you want explicit wildcard matching.
+
 Pattern syntax:
 
 - `*` matches any number of characters.

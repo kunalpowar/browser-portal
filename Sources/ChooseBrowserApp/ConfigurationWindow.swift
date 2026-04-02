@@ -21,8 +21,8 @@ final class ConfigurationWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "ChooseBrowser"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 860, height: 620))
-        window.minSize = NSSize(width: 760, height: 520)
+        window.setContentSize(NSSize(width: 920, height: 640))
+        window.minSize = NSSize(width: 820, height: 560)
         window.center()
         window.isReleasedWhenClosed = false
 
@@ -49,6 +49,8 @@ final class ConfigurationViewModel: ObservableObject {
     @Published var defaultProfileEmail: String?
     @Published var lastUsedProfileEmail: String?
     @Published var rules: [EditableRule] = []
+    @Published var draftPattern = ""
+    @Published var draftProfileEmail = ""
     @Published var configPath = ""
     @Published var statusMessage: String?
     @Published var errorMessage: String?
@@ -56,6 +58,7 @@ final class ConfigurationViewModel: ObservableObject {
     private let router: BrowserRouter
     private let onRequestQuit: () -> Void
     private let onRequestUninstall: () -> Void
+    private var isHydrating = false
 
     init(
         router: BrowserRouter,
@@ -68,8 +71,14 @@ final class ConfigurationViewModel: ObservableObject {
         self.configPath = router.configurationFileURL().path(percentEncoded: false)
     }
 
+    var canAddDraftRule: Bool {
+        draftPattern.trimmedNilIfEmpty != nil && draftProfileEmail.trimmedNilIfEmpty != nil
+    }
+
     func load() {
         do {
+            isHydrating = true
+
             let catalog = try router.availableProfiles()
             let config = try router.loadConfig()
             let knownEmails = catalog.availableEmails
@@ -82,6 +91,8 @@ final class ConfigurationViewModel: ObservableObject {
             defaultProfileEmail = config.defaultProfileEmail
             lastUsedProfileEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
             rules = config.rules.map(EditableRule.init)
+            draftPattern = ""
+            draftProfileEmail = config.defaultProfileEmail ?? profileOptions.first?.email ?? ""
 
             if knownEmails.isEmpty {
                 statusMessage = "ChooseBrowser could not find signed-in Chrome profile emails yet."
@@ -90,33 +101,47 @@ final class ConfigurationViewModel: ObservableObject {
             }
 
             errorMessage = nil
+            isHydrating = false
+        } catch {
+            isHydrating = false
+            errorMessage = error.localizedDescription
+            statusMessage = nil
+        }
+    }
+
+    func addDraftRule() {
+        do {
+            let committedRule = try buildDraftRule(index: rules.count)
+            rules.append(EditableRule(rule: committedRule))
+            draftPattern = ""
+            if draftProfileEmail.trimmedNilIfEmpty == nil {
+                draftProfileEmail = defaultProfileEmail ?? profileOptions.first?.email ?? ""
+            }
+            try persistCommittedState(status: "Rule added.")
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
         }
     }
 
-    func addRule() {
-        let fallbackEmail = defaultProfileEmail ?? profileOptions.first?.email ?? ""
-        rules.append(EditableRule(pattern: "", profileEmail: fallbackEmail))
-        statusMessage = nil
-        errorMessage = nil
-    }
-
     func removeRule(id: UUID) {
         rules.removeAll { $0.id == id }
-        statusMessage = nil
-        errorMessage = nil
+
+        do {
+            try persistCommittedState(status: "Rule removed.")
+        } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = nil
+        }
     }
 
-    func save() {
+    func saveDefaultProfileIfNeeded() {
+        guard !isHydrating else {
+            return
+        }
+
         do {
-            let config = try buildConfig()
-            try router.saveConfig(config)
-            defaultProfileEmail = config.defaultProfileEmail
-            rules = config.rules.map(EditableRule.init)
-            statusMessage = "Saved changes."
-            errorMessage = nil
+            try persistCommittedState(status: "Default profile updated.")
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
@@ -135,8 +160,16 @@ final class ConfigurationViewModel: ObservableObject {
         onRequestUninstall()
     }
 
-    private func buildConfig() throws -> ChooseBrowserConfig {
-        let cleanedRules = try rules.enumerated().map { index, rule in
+    private func persistCommittedState(status: String) throws {
+        let config = try committedConfig()
+        try router.saveConfig(config)
+        defaultProfileEmail = config.defaultProfileEmail
+        statusMessage = status
+        errorMessage = nil
+    }
+
+    private func committedConfig() throws -> ChooseBrowserConfig {
+        let committedRules = try rules.enumerated().map { index, rule in
             let pattern = rule.pattern.trimmingCharacters(in: .whitespacesAndNewlines)
             let profileEmail = rule.profileEmail.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -151,11 +184,25 @@ final class ConfigurationViewModel: ObservableObject {
             return URLRule(pattern: pattern, profileEmail: profileEmail)
         }
 
-        let selectedDefaultProfile = defaultProfileEmail?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmedNilIfEmpty
+        return ChooseBrowserConfig(
+            defaultProfileEmail: defaultProfileEmail?.trimmedNilIfEmpty,
+            rules: committedRules
+        )
+    }
 
-        return ChooseBrowserConfig(defaultProfileEmail: selectedDefaultProfile, rules: cleanedRules)
+    private func buildDraftRule(index: Int) throws -> URLRule {
+        let pattern = draftPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profileEmail = draftProfileEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !pattern.isEmpty else {
+            throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a URL pattern.")
+        }
+
+        guard !profileEmail.isEmpty else {
+            throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a profile email.")
+        }
+
+        return URLRule(pattern: pattern, profileEmail: profileEmail)
     }
 }
 
@@ -170,14 +217,17 @@ struct ConfigurationView: View {
             footer
         }
         .padding(20)
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(minWidth: 820, minHeight: 560)
+        .onChange(of: viewModel.defaultProfileEmail) { _ in
+            viewModel.saveDefaultProfileIfNeeded()
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("ChooseBrowser")
                 .font(.system(size: 28, weight: .semibold))
-            Text("Launch the app directly to edit rules. When macOS launches it for a link, it stays quiet and routes the URL to the right Chrome profile.")
+            Text("Paste a URL prefix, pick the Chrome profile, and click +. Plain URLs match deeper paths automatically. Use * and ? only when you want advanced matching.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Text(viewModel.configPath)
@@ -216,28 +266,29 @@ struct ConfigurationView: View {
     private var rulesSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Rules are matched top to bottom. The first match wins.")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Add Rule") {
-                        viewModel.addRule()
-                    }
-                }
+                Text("Rules are matched top to bottom. The first match wins.")
+                    .foregroundStyle(.secondary)
+
+                DraftRuleComposer(
+                    pattern: $viewModel.draftPattern,
+                    profileEmail: $viewModel.draftProfileEmail,
+                    profileOptions: viewModel.profileOptions,
+                    canAdd: viewModel.canAddDraftRule,
+                    onAdd: viewModel.addDraftRule
+                )
 
                 if viewModel.rules.isEmpty {
                     EmptyRulesView()
                         .frame(maxWidth: .infinity, minHeight: 220)
                 } else {
                     ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(Array(viewModel.rules.indices), id: \.self) { index in
-                                RuleEditorRow(
-                                    index: index + 1,
-                                    rule: $viewModel.rules[index],
-                                    profileOptions: viewModel.profileOptions
+                        VStack(spacing: 10) {
+                            ForEach(viewModel.rules) { rule in
+                                CompactRuleRow(
+                                    rule: rule,
+                                    profileLabel: label(for: rule.profileEmail)
                                 ) {
-                                    viewModel.removeRule(id: viewModel.rules[index].id)
+                                    viewModel.removeRule(id: rule.id)
                                 }
                             }
                         }
@@ -275,10 +326,6 @@ struct ConfigurationView: View {
             Button("Uninstall") {
                 viewModel.requestUninstall()
             }
-            Button("Save") {
-                viewModel.save()
-            }
-            .keyboardShortcut("s")
         }
     }
 
@@ -293,51 +340,93 @@ struct ConfigurationView: View {
 
         return "Links that do not match a rule will fall back to Chrome's last used profile."
     }
+
+    private func label(for email: String) -> String {
+        viewModel.profileOptions.first(where: { $0.email == email })?.label ?? email
+    }
 }
 
-struct RuleEditorRow: View {
-    let index: Int
-    @Binding var rule: EditableRule
+struct DraftRuleComposer: View {
+    @Binding var pattern: String
+    @Binding var profileEmail: String
     let profileOptions: [ProfileOption]
-    let onRemove: () -> Void
+    let canAdd: Bool
+    let onAdd: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .bottom, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Rule \(index)")
+                Text("URL prefix or pattern")
                     .font(.headline)
-                TextField("https://*.example.com/*", text: $rule.pattern)
-                    .textFieldStyle(.roundedBorder)
+                PasteFriendlyTextField(text: $pattern, placeholder: "https://gitlab.com/eslfaceitgroup")
+                    .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Chrome profile")
                     .font(.headline)
 
                 if profileOptions.isEmpty {
-                    TextField("person@example.com", text: $rule.profileEmail)
-                        .textFieldStyle(.roundedBorder)
+                    PasteFriendlyTextField(text: $profileEmail, placeholder: "person@example.com")
+                        .frame(width: 300)
                 } else {
-                    Picker("Chrome profile", selection: $rule.profileEmail) {
+                    Picker("Chrome profile", selection: $profileEmail) {
                         ForEach(profileOptions) { option in
                             Text(option.label)
                                 .tag(option.email)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 280, alignment: .leading)
+                    .frame(width: 300, alignment: .leading)
                 }
             }
 
-            Button(role: .destructive, action: onRemove) {
-                Label("Remove", systemImage: "trash")
+            Button(action: onAdd) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .bold))
+                    .frame(width: 30, height: 30)
             }
-            .labelStyle(.iconOnly)
-            .help("Remove this rule")
-            .padding(.top, 28)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canAdd)
+            .help("Add this rule")
         }
         .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+}
+
+struct CompactRuleRow: View {
+    let rule: EditableRule
+    let profileLabel: String
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(rule.pattern)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(profileLabel)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.bordered)
+            .help("Delete this rule")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -353,7 +442,7 @@ struct EmptyRulesView: View {
                 .foregroundStyle(.secondary)
             Text("No rules yet")
                 .font(.headline)
-            Text("Add a rule to route matching URLs into a specific Chrome profile.")
+            Text("Paste a URL prefix above, choose the profile, and click + to add your first rule.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -418,6 +507,76 @@ struct EditableRule: Identifiable, Equatable {
 
     init(rule: URLRule) {
         self.init(pattern: rule.pattern, profileEmail: rule.profileEmail)
+    }
+}
+
+struct PasteFriendlyTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeNSView(context: Context) -> PasteEnabledTextField {
+        let textField = PasteEnabledTextField()
+        textField.placeholderString = placeholder
+        textField.isBordered = true
+        textField.bezelStyle = .roundedBezel
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textField.delegate = context.coordinator
+        return textField
+    }
+
+    func updateNSView(_ nsView: PasteEnabledTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            self._text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else {
+                return
+            }
+
+            text = textField.stringValue
+        }
+    }
+}
+
+final class PasteEnabledTextField: NSTextField {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        guard let characters = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch characters {
+        case "v":
+            currentEditor()?.paste(nil)
+            return true
+        case "c":
+            currentEditor()?.copy(nil)
+            return true
+        case "x":
+            currentEditor()?.cut(nil)
+            return true
+        case "a":
+            currentEditor()?.selectAll(nil)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
     }
 }
 

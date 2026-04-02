@@ -28,7 +28,7 @@ public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
 
     public func matchingRule(for url: URL) -> URLRule? {
         let candidate = url.absoluteString
-        return rules.first { WildcardMatcher.matches($0.pattern, value: candidate) }
+        return rules.first { RuleMatcher.matches($0.pattern, value: candidate) }
     }
 
     func normalized() -> ChooseBrowserConfig {
@@ -134,6 +134,22 @@ public enum ChooseBrowserError: LocalizedError {
         case let .uninstallFailed(message):
             return "ChooseBrowser could not uninstall itself. \(message)"
         }
+    }
+}
+
+public enum RuleMatcher {
+    public static func matches(_ pattern: String, value: String) -> Bool {
+        let trimmedPattern = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedPattern.isEmpty else {
+            return false
+        }
+
+        if trimmedPattern.contains("*") || trimmedPattern.contains("?") {
+            return WildcardMatcher.matches(trimmedPattern, value: value)
+        }
+
+        return value.hasPrefix(trimmedPattern)
     }
 }
 
