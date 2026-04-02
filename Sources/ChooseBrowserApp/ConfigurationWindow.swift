@@ -47,6 +47,7 @@ final class ConfigurationWindowController: NSWindowController {
 final class ConfigurationViewModel: ObservableObject {
     @Published var profileOptions: [ProfileOption] = []
     @Published var defaultProfileEmail: String?
+    @Published var defaultBrowserStatus = DefaultBrowserStatus(isDefaultForHTTP: false, isDefaultForHTTPS: false)
     @Published var lastUsedProfileEmail: String?
     @Published var rules: [EditableRule] = []
     @Published var draftPattern = ""
@@ -56,16 +57,19 @@ final class ConfigurationViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let router: BrowserRouter
+    private let defaultBrowserService: DefaultBrowserService
     private let onRequestQuit: () -> Void
     private let onRequestUninstall: () -> Void
     private var isHydrating = false
 
     init(
         router: BrowserRouter,
+        defaultBrowserService: DefaultBrowserService = DefaultBrowserService(),
         onRequestQuit: @escaping () -> Void,
         onRequestUninstall: @escaping () -> Void
     ) {
         self.router = router
+        self.defaultBrowserService = defaultBrowserService
         self.onRequestQuit = onRequestQuit
         self.onRequestUninstall = onRequestUninstall
         self.configPath = router.configurationFileURL().path(percentEncoded: false)
@@ -88,6 +92,7 @@ final class ConfigurationViewModel: ObservableObject {
                 configuredEmails: Set(config.rules.map(\.profileEmail)).union([config.defaultProfileEmail].compactMap { $0 }),
                 lastUsedDirectoryName: catalog.lastUsedDirectoryName
             )
+            defaultBrowserStatus = defaultBrowserService.currentStatus(bundleIdentifier: Bundle.main.bundleIdentifier)
             defaultProfileEmail = config.defaultProfileEmail
             lastUsedProfileEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
             rules = config.rules.map(EditableRule.init)
@@ -152,6 +157,10 @@ final class ConfigurationViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([router.configurationFileURL()])
     }
 
+    func openDefaultBrowserSettings() {
+        defaultBrowserService.openSettings()
+    }
+
     func quitApplication() {
         onRequestQuit()
     }
@@ -212,6 +221,7 @@ struct ConfigurationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
+            defaultBrowserSection
             defaultProfileSection
             rulesSection
             footer
@@ -220,6 +230,42 @@ struct ConfigurationView: View {
         .frame(minWidth: 820, minHeight: 560)
         .onChange(of: viewModel.defaultProfileEmail) { _ in
             viewModel.saveDefaultProfileIfNeeded()
+        }
+    }
+
+    private var defaultBrowserSection: some View {
+        GroupBox {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    if viewModel.defaultBrowserStatus.isDefaultForWebLinks {
+                        Text("ChooseBrowser is currently your default browser for web links.")
+                            .font(.headline)
+                        Text("macOS should route normal http and https links through this app.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("ChooseBrowser is not your default browser yet.")
+                            .font(.headline)
+                        Text("To make profile routing work from other apps, set ChooseBrowser as the Default web browser in System Settings > Desktop & Dock.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                if !viewModel.defaultBrowserStatus.isDefaultForWebLinks {
+                    Button("Open Settings") {
+                        viewModel.openDefaultBrowserSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Default Browser")
         }
     }
 
