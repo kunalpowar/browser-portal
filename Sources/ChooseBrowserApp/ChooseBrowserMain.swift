@@ -14,7 +14,7 @@ struct ChooseBrowserMain {
         let app = NSApplication.shared
         let delegate = URLHandlerAppDelegate()
         app.delegate = delegate
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(.prohibited)
         app.run()
     }
 }
@@ -93,6 +93,8 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showConfigurationWindow() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+
         if configurationWindowController == nil {
             configurationWindowController = ConfigurationWindowController(
                 router: router,
@@ -149,6 +151,8 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func present(error: Error) {
+        NSApplication.shared.setActivationPolicy(.accessory)
+
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "ChooseBrowser couldn't open the link"
