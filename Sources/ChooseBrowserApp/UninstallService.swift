@@ -1,0 +1,91 @@
+import AppKit
+import ChooseBrowserCore
+import Foundation
+
+struct UninstallPlan {
+    let appBundleURL: URL
+    let configDirectoryURL: URL
+    let preferencesURL: URL?
+    let savedStateURL: URL?
+    let cachesURL: URL?
+    let launchServicesRegisterURL: URL
+
+    static func current(configurationFileURL: URL, bundleIdentifier: String?) -> UninstallPlan {
+        let fileManager = FileManager.default
+        let libraryDirectory = fileManager.homeDirectoryForCurrentUser
+            .appending(path: "Library", directoryHint: .isDirectory)
+
+        let preferencesURL = bundleIdentifier.map {
+            libraryDirectory
+                .appending(path: "Preferences", directoryHint: .isDirectory)
+                .appending(path: "\($0).plist", directoryHint: .notDirectory)
+        }
+        let savedStateURL = bundleIdentifier.map {
+            libraryDirectory
+                .appending(path: "Saved Application State", directoryHint: .isDirectory)
+                .appending(path: "\($0).savedState", directoryHint: .isDirectory)
+        }
+        let cachesURL = bundleIdentifier.map {
+            libraryDirectory
+                .appending(path: "Caches", directoryHint: .isDirectory)
+                .appending(path: $0, directoryHint: .isDirectory)
+        }
+
+        return UninstallPlan(
+            appBundleURL: Bundle.main.bundleURL,
+            configDirectoryURL: configurationFileURL.deletingLastPathComponent(),
+            preferencesURL: preferencesURL,
+            savedStateURL: savedStateURL,
+            cachesURL: cachesURL,
+            launchServicesRegisterURL: URL(fileURLWithPath: "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+        )
+    }
+}
+
+struct UninstallService {
+    func uninstallCurrentApp(configurationFileURL: URL, bundleIdentifier: String?) throws {
+        let plan = UninstallPlan.current(
+            configurationFileURL: configurationFileURL,
+            bundleIdentifier: bundleIdentifier
+        )
+
+        let shellScript = makeShellScript(for: plan)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", shellScript]
+
+        do {
+            try process.run()
+        } catch {
+            throw ChooseBrowserError.uninstallFailed(error.localizedDescription)
+        }
+    }
+
+    private func makeShellScript(for plan: UninstallPlan) -> String {
+        let removalTargets = [
+            plan.appBundleURL,
+            plan.configDirectoryURL,
+            plan.preferencesURL,
+            plan.savedStateURL,
+            plan.cachesURL,
+        ]
+        .compactMap { $0 }
+        .map { quoted($0.path(percentEncoded: false)) }
+        .joined(separator: " ")
+
+        let launchServicesTool = quoted(plan.launchServicesRegisterURL.path(percentEncoded: false))
+        let appBundlePath = quoted(plan.appBundleURL.path(percentEncoded: false))
+
+        return """
+        sleep 1
+        if [ -x \(launchServicesTool) ]; then
+          \(launchServicesTool) -u \(appBundlePath) >/dev/null 2>&1 || true
+        fi
+        rm -rf \(removalTargets)
+        """
+    }
+
+    private func quoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
+    }
+}

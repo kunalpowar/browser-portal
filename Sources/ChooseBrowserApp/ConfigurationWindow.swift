@@ -6,8 +6,16 @@ import SwiftUI
 final class ConfigurationWindowController: NSWindowController {
     private let viewModel: ConfigurationViewModel
 
-    init(router: BrowserRouter = BrowserRouter()) {
-        self.viewModel = ConfigurationViewModel(router: router)
+    init(
+        router: BrowserRouter = BrowserRouter(),
+        onRequestQuit: @escaping () -> Void,
+        onRequestUninstall: @escaping () -> Void
+    ) {
+        self.viewModel = ConfigurationViewModel(
+            router: router,
+            onRequestQuit: onRequestQuit,
+            onRequestUninstall: onRequestUninstall
+        )
 
         let hostingController = NSHostingController(rootView: ConfigurationView(viewModel: viewModel))
         let window = NSWindow(contentViewController: hostingController)
@@ -46,9 +54,17 @@ final class ConfigurationViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let router: BrowserRouter
+    private let onRequestQuit: () -> Void
+    private let onRequestUninstall: () -> Void
 
-    init(router: BrowserRouter) {
+    init(
+        router: BrowserRouter,
+        onRequestQuit: @escaping () -> Void,
+        onRequestUninstall: @escaping () -> Void
+    ) {
         self.router = router
+        self.onRequestQuit = onRequestQuit
+        self.onRequestUninstall = onRequestUninstall
         self.configPath = router.configurationFileURL().path(percentEncoded: false)
     }
 
@@ -109,6 +125,14 @@ final class ConfigurationViewModel: ObservableObject {
 
     func revealConfigInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([router.configurationFileURL()])
+    }
+
+    func quitApplication() {
+        onRequestQuit()
+    }
+
+    func requestUninstall() {
+        onRequestUninstall()
     }
 
     private func buildConfig() throws -> ChooseBrowserConfig {
@@ -244,6 +268,12 @@ struct ConfigurationView: View {
 
             Button("Reload") {
                 viewModel.load()
+            }
+            Button("Quit") {
+                viewModel.quitApplication()
+            }
+            Button("Uninstall") {
+                viewModel.requestUninstall()
             }
             Button("Save") {
                 viewModel.save()

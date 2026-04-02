@@ -113,6 +113,7 @@ public enum ChooseBrowserError: LocalizedError {
     case invalidURL(String)
     case unknownProfileEmail(String, availableEmails: [String])
     case cannotLaunchChrome(URL)
+    case uninstallFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -130,6 +131,8 @@ public enum ChooseBrowserError: LocalizedError {
             return "No Chrome profile with email \(email) was found. Available emails: \(availableEmails.joined(separator: ", "))."
         case let .cannotLaunchChrome(url):
             return "ChooseBrowser could not launch Chrome for \(url.absoluteString)."
+        case let .uninstallFailed(message):
+            return "ChooseBrowser could not uninstall itself. \(message)"
         }
     }
 }

@@ -22,8 +22,10 @@ struct ChooseBrowserMain {
 @MainActor
 final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private let router = BrowserRouter()
+    private let uninstallService = UninstallService()
     private var pendingConfigurationWindowWorkItem: DispatchWorkItem?
     private var configurationWindowController: ConfigurationWindowController?
+    private var statusItem: NSStatusItem?
 
     override init() {
         super.init()
@@ -37,9 +39,11 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installStatusItem()
+
         let launchURLs = CommandLine.arguments.dropFirst().compactMap(URL.init(string:))
         if !launchURLs.isEmpty {
-            route(urls: launchURLs, shouldTerminateAfterRouting: true)
+            route(urls: launchURLs)
             return
         }
 
@@ -66,26 +70,45 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         route(
-            urls: [url],
-            shouldTerminateAfterRouting: configurationWindowController == nil
+            urls: [url]
         )
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
+    }
+
+    private func installStatusItem() {
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "ChooseBrowser")
+        statusItem.button?.toolTip = "ChooseBrowser"
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(openConfigurationFromStatusItem(_:))
+        self.statusItem = statusItem
+    }
+
+    @objc
+    private func openConfigurationFromStatusItem(_ sender: Any?) {
+        showConfigurationWindow()
     }
 
     private func showConfigurationWindow() {
-        NSApplication.shared.setActivationPolicy(.regular)
-
         if configurationWindowController == nil {
-            configurationWindowController = ConfigurationWindowController(router: router)
+            configurationWindowController = ConfigurationWindowController(
+                router: router,
+                onRequestQuit: { [weak self] in
+                    self?.quitApplication()
+                },
+                onRequestUninstall: { [weak self] in
+                    self?.confirmAndUninstall()
+                }
+            )
         }
 
         configurationWindowController?.showAndActivate()
     }
 
-    private func route(urls: [URL], shouldTerminateAfterRouting: Bool) {
+    private func route(urls: [URL]) {
         for url in urls {
             do {
                 _ = try router.open(url: url)
@@ -94,10 +117,35 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
                 break
             }
         }
+    }
 
-        if shouldTerminateAfterRouting {
-            NSApplication.shared.terminate(nil)
+    private func confirmAndUninstall() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Uninstall ChooseBrowser?"
+        alert.informativeText = "This removes ChooseBrowser.app from Applications and deletes its local configuration data. Your git repo will be left alone."
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            return
         }
+
+        do {
+            try uninstallService.uninstallCurrentApp(
+                configurationFileURL: router.configurationFileURL(),
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            )
+            quitApplication()
+        } catch {
+            present(error: error)
+        }
+    }
+
+    private func quitApplication() {
+        NSApplication.shared.terminate(nil)
     }
 
     private func present(error: Error) {

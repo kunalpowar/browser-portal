@@ -4,7 +4,7 @@ ChooseBrowser is a tiny macOS URL handler that always opens links in Google Chro
 
 It is meant to become your default browser app on macOS. When any `http` or `https` URL is opened, macOS launches ChooseBrowser, ChooseBrowser matches the URL against your rules, and then launches Chrome with the right profile directory.
 
-If you launch `ChooseBrowser.app` directly, it opens a configuration window where you can add, remove, and save rules.
+ChooseBrowser now behaves like a menu bar utility. If you launch `ChooseBrowser.app` directly, it opens a configuration window where you can add, remove, and save rules. After launch, it stays in the menu bar, and clicking the menu bar icon reopens the window.
 
 ## What it does
 
@@ -12,6 +12,7 @@ If you launch `ChooseBrowser.app` directly, it opens a configuration window wher
 - Maps URL wildcard patterns to Chrome profile emails.
 - Reads the actual Chrome profile directory names from Chrome's `Local State` file, so you can configure rules with stable emails instead of `Profile 3`.
 - Creates a starter config automatically on first run.
+- Stays in the macOS menu bar so it can keep handling links in the background.
 
 ## Config
 
@@ -64,6 +65,15 @@ You can also just build the app bundle without installing it:
 ```bash
 ./scripts/build-app.sh
 ```
+
+To uninstall the installed app and remove its local config data:
+
+```bash
+./scripts/uninstall.sh
+```
+
+The in-app configuration window also includes an uninstall button.
+If ChooseBrowser is your current default browser, switch macOS back to another browser after uninstalling it.
 
 ## Set it as your default browser
 
