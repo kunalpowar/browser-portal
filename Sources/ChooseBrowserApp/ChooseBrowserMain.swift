@@ -166,7 +166,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Uninstall \(AppIdentity.displayName)?"
-        alert.informativeText = "This removes \(AppIdentity.displayName).app from Applications and deletes its local configuration data. Your git repo will be left alone."
+        alert.informativeText = "This removes \(AppIdentity.displayName).app from Applications and deletes its local configuration data."
         alert.addButton(withTitle: "Uninstall")
         alert.addButton(withTitle: "Cancel")
 

@@ -237,36 +237,52 @@ struct ConfigurationView: View {
     @ObservedObject var viewModel: ConfigurationViewModel
 
     var body: some View {
-        TabView {
-            routingTab
-                .tabItem {
-                    Label("Rules", systemImage: "list.bullet.rectangle")
-                }
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-            advancedTab
-                .tabItem {
-                    Label("Advanced", systemImage: "slider.horizontal.3")
-                }
+            VStack(alignment: .leading, spacing: 18) {
+                header
 
-            logsTab
-                .tabItem {
-                    Label("Logs", systemImage: "text.append")
+                TabView {
+                    routingTab
+                        .tabItem {
+                            Label("Rules", systemImage: "list.bullet.rectangle")
+                        }
+
+                    advancedTab
+                        .tabItem {
+                            Label("Advanced", systemImage: "slider.horizontal.3")
+                        }
+
+                    logsTab
+                        .tabItem {
+                            Label("Logs", systemImage: "text.append")
+                        }
                 }
+            }
+            .padding(18)
         }
         .frame(minWidth: 820, minHeight: 560)
     }
 
     private var routingTab: some View {
         VStack(alignment: .leading, spacing: 18) {
-            header
-
             if !viewModel.defaultBrowserStatus.isDefaultForWebLinks {
                 defaultBrowserWarningSection
             }
 
             rulesSection
         }
-        .padding(20)
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var advancedTab: some View {
@@ -277,7 +293,7 @@ struct ConfigurationView: View {
                 appDataSection
                 actionsSection
             }
-            .padding(20)
+            .padding(22)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onChange(of: viewModel.unmatchedLinkBehaviorMode) { _ in
@@ -291,32 +307,59 @@ struct ConfigurationView: View {
     }
 
     private var logsTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            logsHeader
-            logsSection
-        }
-        .padding(20)
+        logsSection
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             viewModel.loadLogs()
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AppIdentity.displayName)
-                .font(.system(size: 28, weight: .semibold))
-            Text("Paste a URL prefix, pick the Chrome profile, and click +. Plain URLs match deeper paths automatically. Use * and ? only when you want advanced matching.")
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentColor.opacity(0.9), Color.accentColor.opacity(0.55)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Image(systemName: "globe.americas.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 58, height: 58)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(AppIdentity.displayName)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                Text("Configure where to open links.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    HeaderPill(title: "\(viewModel.rules.count) rule" + (viewModel.rules.count == 1 ? "" : "s"), systemImage: "list.bullet.rectangle")
+                    HeaderPill(
+                        title: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "Default browser ready" : "Needs default browser",
+                        systemImage: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                        tint: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange
+                    )
+                }
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
     private var defaultBrowserWarningSection: some View {
-        GroupBox {
+        AppSectionCard(
+            title: "Action Needed",
+            systemImage: "exclamationmark.triangle.fill",
+            tint: .orange
+        ) {
             HStack(alignment: .center, spacing: 14) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.orange)
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(AppIdentity.displayName) is not your default browser yet.")
                         .font(.headline)
@@ -332,51 +375,66 @@ struct ConfigurationView: View {
                 .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Action Needed")
         }
     }
 
     private var unmatchedLinksSection: some View {
-        GroupBox {
+        AppSectionCard(
+            title: "Unmatched Links",
+            systemImage: "arrow.triangle.branch"
+        ) {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("Unmatched links", selection: $viewModel.unmatchedLinkBehaviorMode) {
-                    Text("Use last active browser")
-                        .tag(UnmatchedLinkBehaviorMode.lastActiveBrowser)
-                    Text("Use Chrome's last used profile")
-                        .tag(UnmatchedLinkBehaviorMode.chromeLastUsed)
-                    Text("Use a specific Chrome profile")
-                        .tag(UnmatchedLinkBehaviorMode.chromeProfile)
-                }
-
-                if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
-                    Picker("Chrome profile", selection: $viewModel.defaultProfileEmail) {
-                        Text("Choose a profile")
-                            .tag(Optional<String>.none)
-
-                        ForEach(viewModel.profileOptions) { option in
-                            Text(option.label)
-                                .tag(option.email as String?)
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Behavior")
+                            .font(.headline)
+                        Picker("Unmatched links", selection: $viewModel.unmatchedLinkBehaviorMode) {
+                            Text("Use last active browser")
+                                .tag(UnmatchedLinkBehaviorMode.lastActiveBrowser)
+                            Text("Use Chrome's last used profile")
+                                .tag(UnmatchedLinkBehaviorMode.chromeLastUsed)
+                            Text("Use a specific Chrome profile")
+                                .tag(UnmatchedLinkBehaviorMode.chromeProfile)
                         }
+                        .labelsHidden()
+                    }
+
+                    if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Chrome Profile")
+                                .font(.headline)
+                            Picker("Chrome profile", selection: $viewModel.defaultProfileEmail) {
+                                Text("Choose a profile")
+                                    .tag(Optional<String>.none)
+
+                                ForEach(viewModel.profileOptions) { option in
+                                    Text(option.label)
+                                        .tag(option.email as String?)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                        .frame(maxWidth: 320, alignment: .leading)
                     }
                 }
 
                 Text(unmatchedLinksDescription)
                     .foregroundStyle(.secondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(insetBackground)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Unmatched Links")
         }
     }
 
     private var defaultBrowserDetailsSection: some View {
-        GroupBox {
+        AppSectionCard(
+            title: "Default Browser",
+            systemImage: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "network.badge.shield.half.filled",
+            tint: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange
+        ) {
             HStack(alignment: .center, spacing: 14) {
-                Image(systemName: viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? .green : .orange)
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text(viewModel.defaultBrowserStatus.isDefaultForWebLinks ? "\(AppIdentity.displayName) is the current default browser." : "\(AppIdentity.displayName) is not the current default browser.")
                         .font(.headline)
@@ -389,20 +447,22 @@ struct ConfigurationView: View {
                 Button("Open Settings") {
                     viewModel.openDefaultBrowserSettings()
                 }
+                .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Default Browser")
         }
     }
 
     private var rulesSection: some View {
-        GroupBox {
+        AppSectionCard(
+            title: "URL Rules",
+            systemImage: "list.bullet.rectangle.portrait"
+        ) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Rules are matched top to bottom. The first match wins.")
-                    .foregroundStyle(.secondary)
-                Text("Anything that does not match a rule follows the unmatched-link behavior from the Advanced tab.")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    HeaderPill(title: "First match wins", systemImage: "number")
+                    HeaderPill(title: "Advanced tab controls unmatched links", systemImage: "slider.horizontal.3")
+                }
 
                 DraftRuleComposer(
                     pattern: $viewModel.draftPattern,
@@ -417,7 +477,7 @@ struct ConfigurationView: View {
                         .frame(maxWidth: .infinity, minHeight: 220)
                 } else {
                     ScrollView {
-                        VStack(spacing: 10) {
+                        LazyVStack(spacing: 12) {
                             ForEach(viewModel.rules) { rule in
                                 CompactRuleRow(
                                     rule: rule,
@@ -427,24 +487,28 @@ struct ConfigurationView: View {
                                 }
                             }
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, 4)
                     }
                     .frame(maxHeight: .infinity)
                 }
             }
-        } label: {
-            Text("URL Rules")
         }
         .frame(maxHeight: .infinity)
     }
 
     private var appDataSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 4) {
+        AppSectionCard(
+            title: "App Data",
+            systemImage: "externaldrive.badge.gearshape"
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(viewModel.configPath)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .foregroundStyle(.secondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(insetBackground)
 
                 HStack(spacing: 10) {
                     Button("Reveal in Finder") {
@@ -456,61 +520,60 @@ struct ConfigurationView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("App Data")
         }
     }
 
     private var actionsSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                } else if let statusMessage = viewModel.statusMessage {
-                    Text(statusMessage)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    Button("Quit") {
-                        viewModel.quitApplication()
-                    }
-                    Button("Uninstall") {
-                        viewModel.requestUninstall()
-                    }
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.red.opacity(0.08))
+                    )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text("Actions")
-        }
-    }
 
-    private var logsHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Logs")
-                .font(.system(size: 28, weight: .semibold))
-            Text("Newest entries appear first. These logs are local to this Mac and are meant to help debug routing and sign-in flows.")
-                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("Quit") {
+                    viewModel.quitApplication()
+                }
+                .buttonStyle(.bordered)
+                Button("Uninstall") {
+                    viewModel.requestUninstall()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var logsSection: some View {
-        GroupBox {
+        AppSectionCard(
+            title: "Event Log",
+            systemImage: "text.append"
+        ) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(viewModel.logPath)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .foregroundStyle(.secondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(insetBackground)
 
                 HStack(spacing: 10) {
                     Button("Reload") {
                         viewModel.loadLogs()
                     }
+                    .buttonStyle(.borderedProminent)
                     Button("Reveal in Finder") {
                         viewModel.revealLogsInFinder()
                     }
+                    .buttonStyle(.bordered)
                 }
 
                 if viewModel.logEntries.isEmpty {
@@ -530,14 +593,14 @@ struct ConfigurationView: View {
                         LazyVStack(alignment: .leading, spacing: 8) {
                             ForEach(viewModel.logEntries) { entry in
                                 Text(entry.message)
-                                    .font(.system(.body, design: .monospaced))
+                                    .font(.system(size: 13, weight: .medium, design: .monospaced))
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 4)
-                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color(nsColor: .controlBackgroundColor))
+                                            .fill(insetFill)
                                     )
                             }
                         }
@@ -545,8 +608,6 @@ struct ConfigurationView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        } label: {
-            Text("Event Log")
         }
         .frame(maxHeight: .infinity)
     }
@@ -571,6 +632,15 @@ struct ConfigurationView: View {
             return "Pick the Chrome profile that should receive unmatched links."
         }
     }
+
+    private var insetBackground: some View {
+        RoundedRectangle(cornerRadius: 14)
+            .fill(insetFill)
+    }
+
+    private var insetFill: Color {
+        Color(nsColor: .controlBackgroundColor)
+    }
 }
 
 struct DraftRuleComposer: View {
@@ -581,47 +651,69 @@ struct DraftRuleComposer: View {
     let onAdd: () -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("URL prefix or pattern")
-                    .font(.headline)
-                PasteFriendlyTextField(text: $pattern, placeholder: "https://gitlab.com/eslfaceitgroup")
-                    .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("New rule")
+                        .font(.headline)
+                    Text("Paste a URL prefix or wildcard pattern, then pick the Chrome profile that should receive it.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Button(action: onAdd) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus")
+                        Text("Add Rule")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!canAdd)
+                .help("Add this rule")
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Chrome profile")
-                    .font(.headline)
+            HStack(alignment: .bottom, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("URL Prefix Or Pattern")
+                        .font(.headline)
+                    PasteFriendlyTextField(text: $pattern, placeholder: "https://gitlab.com/eslfaceitgroup")
+                        .frame(maxWidth: .infinity)
+                }
 
-                if profileOptions.isEmpty {
-                    PasteFriendlyTextField(text: $profileEmail, placeholder: "person@example.com")
-                        .frame(width: 300)
-                } else {
-                    Picker("Chrome profile", selection: $profileEmail) {
-                        ForEach(profileOptions) { option in
-                            Text(option.label)
-                                .tag(option.email)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Chrome Profile")
+                        .font(.headline)
+
+                    if profileOptions.isEmpty {
+                        PasteFriendlyTextField(text: $profileEmail, placeholder: "person@example.com")
+                            .frame(width: 300)
+                    } else {
+                        Picker("Chrome profile", selection: $profileEmail) {
+                            ForEach(profileOptions) { option in
+                                Text(option.label)
+                                    .tag(option.email)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 320, alignment: .leading)
                     }
-                    .labelsHidden()
-                    .frame(width: 300, alignment: .leading)
                 }
             }
-
-            Button(action: onAdd) {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .bold))
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!canAdd)
-            .help("Add this rule")
         }
-        .padding(14)
+        .padding(18)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.white.opacity(0.03), lineWidth: 1)
         )
     }
 }
@@ -632,49 +724,132 @@ struct CompactRuleRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(rule.pattern)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(profileLabel)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Chrome")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text(profileLabel)
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                }
+                .lineLimit(1)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
 
             Spacer()
 
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
-                    .frame(width: 28, height: 28)
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
             .help("Delete this rule")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.03), lineWidth: 1)
         )
     }
 }
 
 struct EmptyRulesView: View {
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Image(systemName: "list.bullet.rectangle")
-                .font(.system(size: 28))
+                .font(.system(size: 30))
                 .foregroundStyle(.secondary)
             Text("No rules yet")
-                .font(.headline)
+                .font(.system(size: 18, weight: .semibold))
             Text("Paste a URL prefix above, choose the profile, and click + to add your first rule.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+}
+
+struct AppSectionCard<Content: View>: View {
+    let title: String
+    var systemImage: String
+    var tint: Color = .accentColor
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        Circle()
+                            .fill(tint.opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+            }
+
+            content
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.28))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+        )
+    }
+}
+
+struct HeaderPill: View {
+    let title: String
+    let systemImage: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
     }
 }
 
