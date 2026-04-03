@@ -46,6 +46,9 @@ final class ConfigurationWindowController: NSWindowController {
 @MainActor
 final class ConfigurationViewModel: ObservableObject {
     @Published var profileOptions: [ProfileOption] = []
+    @Published var launchAtLoginEnabled = false
+    @Published var launchAtLoginDescription = ""
+    @Published var launchAtLoginRequiresApproval = false
     @Published var unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode = .lastActiveBrowser
     @Published var defaultProfileEmail: String?
     @Published var defaultBrowserStatus = DefaultBrowserStatus(isDefaultForHTTP: false, isDefaultForHTTPS: false)
@@ -61,6 +64,7 @@ final class ConfigurationViewModel: ObservableObject {
 
     private let router: BrowserRouter
     private let logStore: AppLogStore
+    private let launchAtLoginService: LaunchAtLoginService
     private let defaultBrowserService: DefaultBrowserService
     private let onRequestQuit: () -> Void
     private let onRequestUninstall: () -> Void
@@ -69,12 +73,14 @@ final class ConfigurationViewModel: ObservableObject {
     init(
         router: BrowserRouter,
         logStore: AppLogStore = .shared,
+        launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
         defaultBrowserService: DefaultBrowserService = DefaultBrowserService(),
         onRequestQuit: @escaping () -> Void,
         onRequestUninstall: @escaping () -> Void
     ) {
         self.router = router
         self.logStore = logStore
+        self.launchAtLoginService = launchAtLoginService
         self.defaultBrowserService = defaultBrowserService
         self.onRequestQuit = onRequestQuit
         self.onRequestUninstall = onRequestUninstall
@@ -99,6 +105,10 @@ final class ConfigurationViewModel: ObservableObject {
                 configuredEmails: Set(config.rules.map(\.profileEmail)).union([config.defaultProfileEmail].compactMap { $0 }),
                 lastUsedDirectoryName: catalog.lastUsedDirectoryName
             )
+            let launchAtLoginState = launchAtLoginService.currentState()
+            launchAtLoginEnabled = launchAtLoginState.isEnabled
+            launchAtLoginDescription = launchAtLoginState.description
+            launchAtLoginRequiresApproval = launchAtLoginState.requiresApproval
             unmatchedLinkBehaviorMode = config.effectiveUnmatchedLinkBehaviorMode
             defaultBrowserStatus = defaultBrowserService.currentStatus(bundleIdentifier: Bundle.main.bundleIdentifier)
             defaultProfileEmail = config.defaultProfileEmail
@@ -157,6 +167,28 @@ final class ConfigurationViewModel: ObservableObject {
         do {
             try persistCommittedState(status: "Unmatched link behavior updated.")
         } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = nil
+        }
+    }
+
+    func saveLaunchAtLoginSetting() {
+        guard !isHydrating else {
+            return
+        }
+
+        do {
+            let state = try launchAtLoginService.setEnabled(launchAtLoginEnabled)
+            launchAtLoginEnabled = state.isEnabled
+            launchAtLoginDescription = state.description
+            launchAtLoginRequiresApproval = state.requiresApproval
+            statusMessage = "Launch at login updated."
+            errorMessage = nil
+        } catch {
+            let state = launchAtLoginService.currentState()
+            launchAtLoginEnabled = state.isEnabled
+            launchAtLoginDescription = state.description
+            launchAtLoginRequiresApproval = state.requiresApproval
             errorMessage = error.localizedDescription
             statusMessage = nil
         }
@@ -288,6 +320,7 @@ struct ConfigurationView: View {
     private var advancedTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                launchAtLoginSection
                 unmatchedLinksSection
                 defaultBrowserDetailsSection
                 appDataSection
@@ -298,6 +331,9 @@ struct ConfigurationView: View {
         }
         .onChange(of: viewModel.unmatchedLinkBehaviorMode) { _ in
             viewModel.saveFallbackBehaviorIfNeeded()
+        }
+        .onChange(of: viewModel.launchAtLoginEnabled) { _ in
+            viewModel.saveLaunchAtLoginSetting()
         }
         .onChange(of: viewModel.defaultProfileEmail) { _ in
             if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
@@ -425,6 +461,31 @@ struct ConfigurationView: View {
                     .background(insetBackground)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var launchAtLoginSection: some View {
+        AppSectionCard(
+            title: "Launch At Login",
+            systemImage: "power"
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(isOn: $viewModel.launchAtLoginEnabled) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Start Browser Portal when you log in")
+                            .font(.headline)
+                        Text(viewModel.launchAtLoginDescription)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                if viewModel.launchAtLoginRequiresApproval {
+                    Text("macOS may ask you to approve this in System Settings.")
+                        .foregroundStyle(.orange)
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
         }
     }
 

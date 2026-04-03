@@ -24,6 +24,7 @@ struct ChooseBrowserMain {
 final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private let router = BrowserRouter()
     private let logStore = AppLogStore.shared
+    private let launchAtLoginService = LaunchAtLoginService()
     private let browserFallbackService = BrowserFallbackService()
     private let uninstallService = UninstallService()
     private lazy var authenticationSessionService = AuthenticationSessionService { [weak self] in
@@ -46,6 +47,8 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logStore.append("Application launched.")
+        let launchAtLoginState = launchAtLoginService.ensureConfiguredOnFirstRun()
+        logStore.append("Launch at login state: \(launchAtLoginState.description)")
         browserFallbackService.startTracking()
         authenticationSessionService.installSessionHandler()
 
