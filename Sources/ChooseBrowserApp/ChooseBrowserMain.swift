@@ -1,4 +1,5 @@
 import AppKit
+import AuthenticationServices
 import ChooseBrowserCore
 import Foundation
 
@@ -22,7 +23,12 @@ struct ChooseBrowserMain {
 @MainActor
 final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private let router = BrowserRouter()
+    private let logStore = AppLogStore.shared
+    private let browserFallbackService = BrowserFallbackService()
     private let uninstallService = UninstallService()
+    private lazy var authenticationSessionService = AuthenticationSessionService { [weak self] in
+        self?.ensureBackgroundPresence()
+    }
     private var pendingConfigurationWindowWorkItem: DispatchWorkItem?
     private var configurationWindowController: ConfigurationWindowController?
     private var statusItem: NSStatusItem?
@@ -39,8 +45,18 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logStore.append("Application launched.")
+        browserFallbackService.startTracking()
+        authenticationSessionService.installSessionHandler()
+
+        logStore.append("AuthenticationServices launch flag: \(authenticationSessionService.wasLaunchedByAuthenticationServices).")
+        if authenticationSessionService.wasLaunchedByAuthenticationServices {
+            return
+        }
+
         let launchURLs = CommandLine.arguments.dropFirst().compactMap(URL.init(string:))
         if !launchURLs.isEmpty {
+            logStore.append("Received launch URLs: \(launchURLs.map(\.absoluteString).joined(separator: ", ")).")
             route(urls: launchURLs)
             ensureBackgroundPresence()
             return
@@ -61,6 +77,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
             let rawURL = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
             let url = URL(string: rawURL)
         else {
+            logStore.append("Received invalid URL event payload.")
             present(error: ChooseBrowserError.invalidURL("(missing URL event payload)"))
             if configurationWindowController == nil {
                 NSApplication.shared.terminate(nil)
@@ -68,6 +85,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        logStore.append("Received URL event: \(url.absoluteString)")
         route(
             urls: [url]
         )
@@ -102,6 +120,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showConfigurationWindow() {
+        logStore.append("Showing configuration window.")
         ensureBackgroundPresence()
 
         if configurationWindowController == nil {
@@ -122,8 +141,20 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private func route(urls: [URL]) {
         for url in urls {
             do {
-                _ = try router.open(url: url)
+                switch try router.plan(for: url) {
+                case let .routeInChrome(decision):
+                    if decision.matchedRule != nil {
+                        logStore.append("Routing matched URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
+                    } else {
+                        logStore.append("Routing unmatched URL to configured Chrome destination \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
+                    }
+                    try router.open(url: decision.url)
+                case let .fallbackToSystem(fallbackURL):
+                    logStore.append("Falling back to system browser for unmatched URL: \(fallbackURL.absoluteString)")
+                    try browserFallbackService.open(url: fallbackURL)
+                }
             } catch {
+                logStore.append("Routing failed for \(url.absoluteString): \(error.localizedDescription)")
                 present(error: error)
                 break
             }
@@ -131,6 +162,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func confirmAndUninstall() {
+        logStore.append("Uninstall requested from app UI.")
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Uninstall \(AppIdentity.displayName)?"
@@ -160,6 +192,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func present(error: Error) {
+        logStore.append("Presenting error alert: \(error.localizedDescription)")
         ensureBackgroundPresence()
 
         let alert = NSAlert()

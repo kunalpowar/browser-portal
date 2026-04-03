@@ -49,6 +49,17 @@
     <array>
         <string>NSUserActivityTypeBrowsingWeb</string>
     </array>
+    <key>ASWebAuthenticationSessionWebBrowserSupportCapabilities</key>
+    <dict>
+        <key>AdditionalHeaderFieldsAreSupported</key>
+        <true/>
+        <key>CallbackURLMatchingIsSupported</key>
+        <true/>
+        <key>EphemeralBrowserSessionIsSupported</key>
+        <true/>
+        <key>IsSupported</key>
+        <true/>
+    </dict>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

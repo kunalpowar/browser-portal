@@ -33,6 +33,107 @@ func configReturnsFirstMatchingRule() throws {
 }
 
 @Test
+func routingPlanFallsBackWhenNoRuleMatches() throws {
+    let fileManager = FileManager.default
+    let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
+    let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
+    let router = BrowserRouter(fileManager: fileManager, configManager: configManager)
+
+    defer {
+        try? fileManager.removeItem(at: directoryURL)
+    }
+
+    try configManager.save(
+        config: ChooseBrowserConfig(
+            unmatchedLinkBehaviorMode: .lastActiveBrowser,
+            defaultProfileEmail: "personal@example.com",
+            rules: [
+                URLRule(pattern: "https://work.example.com/*", profileEmail: "work@example.com")
+            ]
+        )
+    )
+
+    let url = try #require(URL(string: "https://github.com/openai"))
+    let plan = try router.plan(for: url)
+
+    #expect(plan == .fallbackToSystem(url))
+}
+
+@Test
+func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
+    let fileManager = FileManager.default
+    let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
+    let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
+    let router = BrowserRouter(fileManager: fileManager, configManager: configManager)
+
+    defer {
+        try? fileManager.removeItem(at: directoryURL)
+    }
+
+    let localStateURL = fileManager.homeDirectoryForCurrentUser
+        .appending(path: "Library", directoryHint: .isDirectory)
+        .appending(path: "Application Support", directoryHint: .isDirectory)
+        .appending(path: "Google", directoryHint: .isDirectory)
+        .appending(path: "Chrome", directoryHint: .isDirectory)
+        .appending(path: "Local State", directoryHint: .notDirectory)
+    let localStateDirectoryURL = localStateURL.deletingLastPathComponent()
+
+    try fileManager.createDirectory(at: localStateDirectoryURL, withIntermediateDirectories: true)
+    let originalLocalStateData = try? Data(contentsOf: localStateURL)
+
+    defer {
+        if let originalLocalStateData {
+            try? originalLocalStateData.write(to: localStateURL, options: .atomic)
+        } else {
+            try? fileManager.removeItem(at: localStateURL)
+        }
+    }
+
+    try Data(
+        """
+        {
+          "profile": {
+            "last_used": "Default",
+            "info_cache": {
+              "Default": {
+                "name": "Personal",
+                "user_name": "personal@example.com"
+              },
+              "Profile 4": {
+                "name": "Work",
+                "user_name": "work@example.com"
+              }
+            }
+          }
+        }
+        """.utf8
+    )
+    .write(to: localStateURL, options: .atomic)
+
+    try configManager.save(
+        config: ChooseBrowserConfig(
+            unmatchedLinkBehaviorMode: .chromeProfile,
+            defaultProfileEmail: "work@example.com",
+            rules: []
+        )
+    )
+
+    let url = try #require(URL(string: "https://github.com/openai"))
+    let plan = try router.plan(for: url)
+
+    guard case let .routeInChrome(decision) = plan else {
+        Issue.record("Expected unmatched links to route into Chrome.")
+        return
+    }
+
+    #expect(decision.matchedRule == nil)
+    #expect(decision.profileEmail == "work@example.com")
+    #expect(decision.profileDirectoryName == "Profile 4")
+}
+
+@Test
 func chromeLocalStateParserExtractsProfilesAndLastUsedDirectory() throws {
     let data = Data(
         """

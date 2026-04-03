@@ -5,6 +5,7 @@ import Foundation
 struct UninstallPlan {
     let appBundleURL: URL
     let configDirectoryURL: URL
+    let logsDirectoryURL: URL
     let preferencesURL: URL?
     let savedStateURL: URL?
     let cachesURL: URL?
@@ -36,6 +37,7 @@ struct UninstallPlan {
         return UninstallPlan(
             appBundleURL: Bundle.main.bundleURL,
             configDirectoryURL: configurationFileURL.deletingLastPathComponent(),
+            logsDirectoryURL: AppLogStore.defaultLogFileURL(fileManager: fileManager).deletingLastPathComponent(),
             preferencesURL: preferencesURL,
             savedStateURL: savedStateURL,
             cachesURL: cachesURL,
@@ -71,6 +73,7 @@ struct UninstallService {
         let removalTargets = [
             plan.appBundleURL,
             plan.configDirectoryURL,
+            plan.logsDirectoryURL,
             plan.preferencesURL,
             plan.savedStateURL,
             plan.cachesURL,

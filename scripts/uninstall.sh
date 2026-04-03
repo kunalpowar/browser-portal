@@ -7,6 +7,7 @@ TARGET_DIR="${TARGET_DIR:-$HOME/Applications}"
 APP_PATH="$TARGET_DIR/$APP_NAME.app"
 LEGACY_APP_PATH="$TARGET_DIR/$LEGACY_APP_NAME.app"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/Library/Application Support/BrowserPortal}"
+LOGS_DIR="${LOGS_DIR:-$HOME/Library/Logs/BrowserPortal}"
 LEGACY_CONFIG_DIR="${LEGACY_CONFIG_DIR:-$HOME/Library/Application Support/ChooseBrowser}"
 PREFERENCES_PATH="${PREFERENCES_PATH:-$HOME/Library/Preferences/app.browserportal.mac.plist}"
 SAVED_STATE_PATH="${SAVED_STATE_PATH:-$HOME/Library/Saved Application State/app.browserportal.mac.savedState}"
@@ -19,10 +20,11 @@ if [[ -x "$LSREGISTER" ]]; then
 fi
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
-  printf 'Would remove:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+  printf 'Would remove:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
     "$APP_PATH" \
     "$LEGACY_APP_PATH" \
     "$CONFIG_DIR" \
+    "$LOGS_DIR" \
     "$LEGACY_CONFIG_DIR" \
     "$PREFERENCES_PATH" \
     "$SAVED_STATE_PATH" \
@@ -34,6 +36,7 @@ rm -rf \
   "$APP_PATH" \
   "$LEGACY_APP_PATH" \
   "$CONFIG_DIR" \
+  "$LOGS_DIR" \
   "$LEGACY_CONFIG_DIR" \
   "$PREFERENCES_PATH" \
   "$SAVED_STATE_PATH" \

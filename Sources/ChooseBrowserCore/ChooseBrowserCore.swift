@@ -25,11 +25,23 @@ public struct URLRule: Codable, Equatable, Sendable {
     }
 }
 
+public enum UnmatchedLinkBehaviorMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case lastActiveBrowser
+    case chromeLastUsed
+    case chromeProfile
+}
+
 public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
+    public let unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode?
     public let defaultProfileEmail: String?
     public let rules: [URLRule]
 
-    public init(defaultProfileEmail: String?, rules: [URLRule]) {
+    public init(
+        unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode? = nil,
+        defaultProfileEmail: String?,
+        rules: [URLRule]
+    ) {
+        self.unmatchedLinkBehaviorMode = unmatchedLinkBehaviorMode
         self.defaultProfileEmail = defaultProfileEmail
         self.rules = rules
     }
@@ -41,9 +53,22 @@ public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
 
     func normalized() -> ChooseBrowserConfig {
         ChooseBrowserConfig(
+            unmatchedLinkBehaviorMode: unmatchedLinkBehaviorMode,
             defaultProfileEmail: defaultProfileEmail?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNilIfEmpty,
             rules: rules.map { $0.normalized() }
         )
+    }
+
+    public var effectiveUnmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode {
+        if let unmatchedLinkBehaviorMode {
+            return unmatchedLinkBehaviorMode
+        }
+
+        if defaultProfileEmail?.trimmedNilIfEmpty != nil {
+            return .chromeProfile
+        }
+
+        return .lastActiveBrowser
     }
 }
 
@@ -115,12 +140,18 @@ public struct BrowserRoutingDecision: Equatable, Sendable {
     }
 }
 
+public enum BrowserRoutingPlan: Equatable, Sendable {
+    case routeInChrome(BrowserRoutingDecision)
+    case fallbackToSystem(URL)
+}
+
 public enum ChooseBrowserError: LocalizedError {
     case invalidConfiguration(String)
     case chromeNotFound
     case invalidURL(String)
     case unknownProfileEmail(String, availableEmails: [String])
     case cannotLaunchChrome(URL)
+    case noFallbackBrowser
     case uninstallFailed(String)
 
     public var errorDescription: String? {
@@ -139,6 +170,8 @@ public enum ChooseBrowserError: LocalizedError {
             return "No Chrome profile with email \(email) was found. Available emails: \(availableEmails.joined(separator: ", "))."
         case let .cannotLaunchChrome(url):
             return "\(AppIdentity.displayName) could not launch Chrome for \(url.absoluteString)."
+        case .noFallbackBrowser:
+            return "Open another browser once so \(AppIdentity.displayName) can hand unmatched links back to it."
         case let .uninstallFailed(message):
             return "\(AppIdentity.displayName) could not uninstall itself. \(message)"
         }
@@ -205,7 +238,11 @@ public final class ConfigManager {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         guard fileManager.fileExists(atPath: configurationFileURL.fileSystemPath) else {
-            let starterConfig = ChooseBrowserConfig(defaultProfileEmail: defaultProfileEmail, rules: [])
+            let starterConfig = ChooseBrowserConfig(
+                unmatchedLinkBehaviorMode: .lastActiveBrowser,
+                defaultProfileEmail: defaultProfileEmail,
+                rules: []
+            )
             try write(config: starterConfig)
             return starterConfig
         }
@@ -451,27 +488,75 @@ public final class BrowserRouter {
         return try environment.loadProfileCatalog(fileManager: fileManager)
     }
 
-    @discardableResult
-    public func open(url: URL) throws -> BrowserRoutingDecision {
+    public func plan(for url: URL) throws -> BrowserRoutingPlan {
         let environment = try ChromeEnvironment.discover(fileManager: fileManager)
         let catalog = try environment.loadProfileCatalog(fileManager: fileManager)
         let config = try loadConfig()
         let matchedRule = config.matchingRule(for: url)
-        let preferredEmail = matchedRule?.profileEmail ?? config.defaultProfileEmail
+
+        guard let matchedRule else {
+            switch config.effectiveUnmatchedLinkBehaviorMode {
+            case .lastActiveBrowser:
+                return .fallbackToSystem(url)
+            case .chromeLastUsed:
+                let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
+                    preferredEmail: nil,
+                    catalog: catalog
+                )
+
+                return .routeInChrome(
+                    BrowserRoutingDecision(
+                        url: url,
+                        profileDirectoryName: profileDirectoryName,
+                        profileEmail: nil,
+                        matchedRule: nil
+                    )
+                )
+            case .chromeProfile:
+                let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
+                    preferredEmail: config.defaultProfileEmail,
+                    catalog: catalog
+                )
+
+                return .routeInChrome(
+                    BrowserRoutingDecision(
+                        url: url,
+                        profileDirectoryName: profileDirectoryName,
+                        profileEmail: config.defaultProfileEmail,
+                        matchedRule: nil
+                    )
+                )
+            }
+        }
+
+        let preferredEmail = matchedRule.profileEmail
         let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
             preferredEmail: preferredEmail,
             catalog: catalog
         )
 
-        let launcher = ChromeLauncher(environment: environment)
-        try launcher.open(url: url, inProfileDirectory: profileDirectoryName)
-
-        return BrowserRoutingDecision(
-            url: url,
-            profileDirectoryName: profileDirectoryName,
-            profileEmail: preferredEmail,
-            matchedRule: matchedRule
+        return .routeInChrome(
+            BrowserRoutingDecision(
+                url: url,
+                profileDirectoryName: profileDirectoryName,
+                profileEmail: preferredEmail,
+                matchedRule: matchedRule
+            )
         )
+    }
+
+    @discardableResult
+    public func open(url: URL) throws -> BrowserRoutingDecision {
+        let environment = try ChromeEnvironment.discover(fileManager: fileManager)
+
+        switch try plan(for: url) {
+        case let .routeInChrome(decision):
+            let launcher = ChromeLauncher(environment: environment)
+            try launcher.open(url: url, inProfileDirectory: decision.profileDirectoryName)
+            return decision
+        case .fallbackToSystem:
+            throw ChooseBrowserError.invalidConfiguration("A system fallback plan cannot be opened directly as a Chrome routing decision.")
+        }
     }
 }
 

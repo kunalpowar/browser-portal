@@ -46,17 +46,21 @@ final class ConfigurationWindowController: NSWindowController {
 @MainActor
 final class ConfigurationViewModel: ObservableObject {
     @Published var profileOptions: [ProfileOption] = []
+    @Published var unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode = .lastActiveBrowser
     @Published var defaultProfileEmail: String?
     @Published var defaultBrowserStatus = DefaultBrowserStatus(isDefaultForHTTP: false, isDefaultForHTTPS: false)
     @Published var lastUsedProfileEmail: String?
+    @Published var logEntries: [AppLogEntry] = []
     @Published var rules: [EditableRule] = []
     @Published var draftPattern = ""
     @Published var draftProfileEmail = ""
     @Published var configPath = ""
+    @Published var logPath = ""
     @Published var statusMessage: String?
     @Published var errorMessage: String?
 
     private let router: BrowserRouter
+    private let logStore: AppLogStore
     private let defaultBrowserService: DefaultBrowserService
     private let onRequestQuit: () -> Void
     private let onRequestUninstall: () -> Void
@@ -64,15 +68,18 @@ final class ConfigurationViewModel: ObservableObject {
 
     init(
         router: BrowserRouter,
+        logStore: AppLogStore = .shared,
         defaultBrowserService: DefaultBrowserService = DefaultBrowserService(),
         onRequestQuit: @escaping () -> Void,
         onRequestUninstall: @escaping () -> Void
     ) {
         self.router = router
+        self.logStore = logStore
         self.defaultBrowserService = defaultBrowserService
         self.onRequestQuit = onRequestQuit
         self.onRequestUninstall = onRequestUninstall
         self.configPath = router.configurationFileURL().path(percentEncoded: false)
+        self.logPath = logStore.logFileURL.path(percentEncoded: false)
     }
 
     var canAddDraftRule: Bool {
@@ -92,6 +99,7 @@ final class ConfigurationViewModel: ObservableObject {
                 configuredEmails: Set(config.rules.map(\.profileEmail)).union([config.defaultProfileEmail].compactMap { $0 }),
                 lastUsedDirectoryName: catalog.lastUsedDirectoryName
             )
+            unmatchedLinkBehaviorMode = config.effectiveUnmatchedLinkBehaviorMode
             defaultBrowserStatus = defaultBrowserService.currentStatus(bundleIdentifier: Bundle.main.bundleIdentifier)
             defaultProfileEmail = config.defaultProfileEmail
             lastUsedProfileEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
@@ -105,6 +113,7 @@ final class ConfigurationViewModel: ObservableObject {
                 statusMessage = "Loaded \(rules.count) rule" + (rules.count == 1 ? "." : "s.")
             }
 
+            loadLogs()
             errorMessage = nil
             isHydrating = false
         } catch {
@@ -140,13 +149,13 @@ final class ConfigurationViewModel: ObservableObject {
         }
     }
 
-    func saveDefaultProfileIfNeeded() {
+    func saveFallbackBehaviorIfNeeded() {
         guard !isHydrating else {
             return
         }
 
         do {
-            try persistCommittedState(status: "Default profile updated.")
+            try persistCommittedState(status: "Unmatched link behavior updated.")
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
@@ -155,6 +164,14 @@ final class ConfigurationViewModel: ObservableObject {
 
     func revealConfigInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([router.configurationFileURL()])
+    }
+
+    func loadLogs() {
+        logEntries = logStore.loadEntries()
+    }
+
+    func revealLogsInFinder() {
+        logStore.revealInFinder()
     }
 
     func openDefaultBrowserSettings() {
@@ -194,6 +211,7 @@ final class ConfigurationViewModel: ObservableObject {
         }
 
         return ChooseBrowserConfig(
+            unmatchedLinkBehaviorMode: unmatchedLinkBehaviorMode,
             defaultProfileEmail: defaultProfileEmail?.trimmedNilIfEmpty,
             rules: committedRules
         )
@@ -229,6 +247,11 @@ struct ConfigurationView: View {
                 .tabItem {
                     Label("Advanced", systemImage: "slider.horizontal.3")
                 }
+
+            logsTab
+                .tabItem {
+                    Label("Logs", systemImage: "text.append")
+                }
         }
         .frame(minWidth: 820, minHeight: 560)
     }
@@ -249,7 +272,7 @@ struct ConfigurationView: View {
     private var advancedTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                defaultProfileSection
+                unmatchedLinksSection
                 defaultBrowserDetailsSection
                 appDataSection
                 actionsSection
@@ -257,8 +280,24 @@ struct ConfigurationView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onChange(of: viewModel.unmatchedLinkBehaviorMode) { _ in
+            viewModel.saveFallbackBehaviorIfNeeded()
+        }
         .onChange(of: viewModel.defaultProfileEmail) { _ in
-            viewModel.saveDefaultProfileIfNeeded()
+            if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
+                viewModel.saveFallbackBehaviorIfNeeded()
+            }
+        }
+    }
+
+    private var logsTab: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            logsHeader
+            logsSection
+        }
+        .padding(20)
+        .onAppear {
+            viewModel.loadLogs()
         }
     }
 
@@ -298,25 +337,36 @@ struct ConfigurationView: View {
         }
     }
 
-    private var defaultProfileSection: some View {
+    private var unmatchedLinksSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("Fallback profile", selection: $viewModel.defaultProfileEmail) {
+                Picker("Unmatched links", selection: $viewModel.unmatchedLinkBehaviorMode) {
+                    Text("Use last active browser")
+                        .tag(UnmatchedLinkBehaviorMode.lastActiveBrowser)
                     Text("Use Chrome's last used profile")
-                        .tag(Optional<String>.none)
+                        .tag(UnmatchedLinkBehaviorMode.chromeLastUsed)
+                    Text("Use a specific Chrome profile")
+                        .tag(UnmatchedLinkBehaviorMode.chromeProfile)
+                }
 
-                    ForEach(viewModel.profileOptions) { option in
-                        Text(option.label)
-                            .tag(option.email as String?)
+                if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
+                    Picker("Chrome profile", selection: $viewModel.defaultProfileEmail) {
+                        Text("Choose a profile")
+                            .tag(Optional<String>.none)
+
+                        ForEach(viewModel.profileOptions) { option in
+                            Text(option.label)
+                                .tag(option.email as String?)
+                        }
                     }
                 }
 
-                Text(fallbackDescription)
+                Text(unmatchedLinksDescription)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
-            Text("Default Behavior")
+            Text("Unmatched Links")
         }
     }
 
@@ -350,6 +400,8 @@ struct ConfigurationView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Rules are matched top to bottom. The first match wins.")
+                    .foregroundStyle(.secondary)
+                Text("Anything that does not match a rule follows the unmatched-link behavior from the Advanced tab.")
                     .foregroundStyle(.secondary)
 
                 DraftRuleComposer(
@@ -435,20 +487,89 @@ struct ConfigurationView: View {
         }
     }
 
-    private var fallbackDescription: String {
-        if let email = viewModel.defaultProfileEmail {
-            return "Links that do not match a rule will open in \(email)."
+    private var logsHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Logs")
+                .font(.system(size: 28, weight: .semibold))
+            Text("Newest entries appear first. These logs are local to this Mac and are meant to help debug routing and sign-in flows.")
+                .foregroundStyle(.secondary)
         }
+    }
 
-        if let email = viewModel.lastUsedProfileEmail {
-            return "Links that do not match a rule will follow Chrome's last used profile, currently \(email)."
+    private var logsSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(viewModel.logPath)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button("Reload") {
+                        viewModel.loadLogs()
+                    }
+                    Button("Reveal in Finder") {
+                        viewModel.revealLogsInFinder()
+                    }
+                }
+
+                if viewModel.logEntries.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.secondary)
+                        Text("No Logs Yet")
+                            .font(.headline)
+                        Text("Trigger a link open or auth flow, then come back here and reload.")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(viewModel.logEntries) { entry in
+                                Text(entry.message)
+                                    .font(.system(.body, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color(nsColor: .controlBackgroundColor))
+                                    )
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } label: {
+            Text("Event Log")
         }
-
-        return "Links that do not match a rule will fall back to Chrome's last used profile."
+        .frame(maxHeight: .infinity)
     }
 
     private func label(for email: String) -> String {
         viewModel.profileOptions.first(where: { $0.email == email })?.label ?? email
+    }
+
+    private var unmatchedLinksDescription: String {
+        switch viewModel.unmatchedLinkBehaviorMode {
+        case .lastActiveBrowser:
+            return "Unmatched links go to the most recently active browser app."
+        case .chromeLastUsed:
+            if let email = viewModel.lastUsedProfileEmail {
+                return "Unmatched links open in Chrome's last used profile, currently \(email)."
+            }
+            return "Unmatched links open in Chrome's last used profile."
+        case .chromeProfile:
+            if let email = viewModel.defaultProfileEmail {
+                return "Unmatched links always open in Chrome using \(email)."
+            }
+            return "Pick the Chrome profile that should receive unmatched links."
+        }
     }
 }
 
