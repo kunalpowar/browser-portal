@@ -38,7 +38,12 @@ func routingPlanFallsBackWhenNoRuleMatches() throws {
     let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
     let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
-    let router = BrowserRouter(fileManager: fileManager, configManager: configManager)
+    let chromeEnvironment = makeTemporaryChromeEnvironment(in: directoryURL)
+    let router = BrowserRouter(
+        fileManager: fileManager,
+        configManager: configManager,
+        chromeEnvironmentProvider: { chromeEnvironment }
+    )
 
     defer {
         try? fileManager.removeItem(at: directoryURL)
@@ -66,30 +71,23 @@ func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
     let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
     let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
-    let router = BrowserRouter(fileManager: fileManager, configManager: configManager)
+    let localStateURL = directoryURL
+        .appending(path: "Chrome", directoryHint: .isDirectory)
+        .appending(path: "Local State", directoryHint: .notDirectory)
+    let chromeEnvironment = makeTemporaryChromeEnvironment(in: directoryURL, localStateURL: localStateURL)
+    let router = BrowserRouter(
+        fileManager: fileManager,
+        configManager: configManager,
+        chromeEnvironmentProvider: { chromeEnvironment }
+    )
 
     defer {
         try? fileManager.removeItem(at: directoryURL)
     }
 
-    let localStateURL = fileManager.homeDirectoryForCurrentUser
-        .appending(path: "Library", directoryHint: .isDirectory)
-        .appending(path: "Application Support", directoryHint: .isDirectory)
-        .appending(path: "Google", directoryHint: .isDirectory)
-        .appending(path: "Chrome", directoryHint: .isDirectory)
-        .appending(path: "Local State", directoryHint: .notDirectory)
     let localStateDirectoryURL = localStateURL.deletingLastPathComponent()
 
     try fileManager.createDirectory(at: localStateDirectoryURL, withIntermediateDirectories: true)
-    let originalLocalStateData = try? Data(contentsOf: localStateURL)
-
-    defer {
-        if let originalLocalStateData {
-            try? originalLocalStateData.write(to: localStateURL, options: .atomic)
-        } else {
-            try? fileManager.removeItem(at: localStateURL)
-        }
-    }
 
     try Data(
         """
@@ -131,6 +129,20 @@ func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
     #expect(decision.matchedRule == nil)
     #expect(decision.profileEmail == "work@example.com")
     #expect(decision.profileDirectoryName == "Profile 4")
+}
+
+private func makeTemporaryChromeEnvironment(in directoryURL: URL, localStateURL: URL? = nil) -> ChromeEnvironment {
+    let appURL = directoryURL.appending(path: "Google Chrome.app", directoryHint: .isDirectory)
+    let binaryURL = appURL
+        .appending(path: "Contents", directoryHint: .isDirectory)
+        .appending(path: "MacOS", directoryHint: .isDirectory)
+        .appending(path: "Google Chrome", directoryHint: .notDirectory)
+
+    return ChromeEnvironment(
+        appURL: appURL,
+        binaryURL: binaryURL,
+        localStateURL: localStateURL ?? directoryURL.appending(path: "Local State", directoryHint: .notDirectory)
+    )
 }
 
 @Test

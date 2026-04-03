@@ -463,10 +463,18 @@ public struct ChromeLauncher: Sendable {
 public final class BrowserRouter {
     private let fileManager: FileManager
     private let configManager: ConfigManager
+    private let chromeEnvironmentProvider: () throws -> ChromeEnvironment
 
-    public init(fileManager: FileManager = .default, configManager: ConfigManager? = nil) {
+    public init(
+        fileManager: FileManager = .default,
+        configManager: ConfigManager? = nil,
+        chromeEnvironmentProvider: (() throws -> ChromeEnvironment)? = nil
+    ) {
         self.fileManager = fileManager
         self.configManager = configManager ?? ConfigManager(fileManager: fileManager)
+        self.chromeEnvironmentProvider = chromeEnvironmentProvider ?? {
+            try ChromeEnvironment.discover(fileManager: fileManager)
+        }
     }
 
     public func configurationFileURL() -> URL {
@@ -484,12 +492,12 @@ public final class BrowserRouter {
     }
 
     public func availableProfiles() throws -> ChromeProfileCatalog {
-        let environment = try ChromeEnvironment.discover(fileManager: fileManager)
+        let environment = try chromeEnvironmentProvider()
         return try environment.loadProfileCatalog(fileManager: fileManager)
     }
 
     public func plan(for url: URL) throws -> BrowserRoutingPlan {
-        let environment = try ChromeEnvironment.discover(fileManager: fileManager)
+        let environment = try chromeEnvironmentProvider()
         let catalog = try environment.loadProfileCatalog(fileManager: fileManager)
         let config = try loadConfig()
         let matchedRule = config.matchingRule(for: url)
@@ -547,7 +555,7 @@ public final class BrowserRouter {
 
     @discardableResult
     public func open(url: URL) throws -> BrowserRoutingDecision {
-        let environment = try ChromeEnvironment.discover(fileManager: fileManager)
+        let environment = try chromeEnvironmentProvider()
 
         switch try plan(for: url) {
         case let .routeInChrome(decision):
