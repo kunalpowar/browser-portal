@@ -10,6 +10,7 @@ APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 PLIST_BUDDY="/usr/libexec/PlistBuddy"
+CODESIGN_BIN="/usr/bin/codesign"
 
 swift build --configuration release --product "$EXECUTABLE_NAME" --package-path "$ROOT_DIR"
 
@@ -24,6 +25,10 @@ chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 if [[ -x "$PLIST_BUDDY" ]]; then
   "$PLIST_BUDDY" -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_DIR/Contents/Info.plist"
   "$PLIST_BUDDY" -c "Set :CFBundleVersion $APP_BUILD" "$APP_DIR/Contents/Info.plist"
+fi
+
+if [[ -x "$CODESIGN_BIN" ]]; then
+  "$CODESIGN_BIN" --force --deep --sign - "$APP_DIR"
 fi
 
 echo "Built $APP_DIR"
