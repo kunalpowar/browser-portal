@@ -105,7 +105,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "globe", accessibilityDescription: AppIdentity.displayName)
+        statusItem.button?.image = BrandAssets.statusBarImage()
         statusItem.button?.toolTip = AppIdentity.displayName
         statusItem.button?.target = self
         statusItem.button?.action = #selector(openConfigurationFromStatusItem(_:))

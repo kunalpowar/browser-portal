@@ -60,116 +60,221 @@ func makeIcon(size: CGFloat) -> NSImage {
         fatalError("Could not create graphics context")
     }
 
-    let bounds = CGRect(origin: .zero, size: CGSize(width: size, height: size))
     context.setAllowsAntialiasing(true)
     context.setShouldAntialias(true)
 
-    let cornerRadius = size * 0.23
-    let backgroundPath = NSBezierPath(roundedRect: bounds.insetBy(dx: size * 0.035, dy: size * 0.035), xRadius: cornerRadius, yRadius: cornerRadius)
-    context.saveGState()
-    backgroundPath.addClip()
+    let bounds = CGRect(origin: .zero, size: CGSize(width: size, height: size))
+    drawAtmosphere(in: bounds, context: context)
 
-    let backgroundGradient = NSGradient(colors: [
-        NSColor(calibratedRed: 0.08, green: 0.24, blue: 0.62, alpha: 1.0),
-        NSColor(calibratedRed: 0.18, green: 0.62, blue: 0.88, alpha: 1.0),
-        NSColor(calibratedRed: 0.96, green: 0.78, blue: 0.28, alpha: 1.0),
-    ])!
-    backgroundGradient.draw(in: backgroundPath, angle: -48)
-
-    let glowRect = CGRect(x: size * 0.14, y: size * 0.56, width: size * 0.82, height: size * 0.5)
-    let glowPath = NSBezierPath(ovalIn: glowRect)
-    NSColor(calibratedWhite: 1.0, alpha: 0.16).setFill()
-    glowPath.fill()
-
-    let wavePath = NSBezierPath()
-    wavePath.move(to: CGPoint(x: size * 0.08, y: size * 0.28))
-    wavePath.curve(
-        to: CGPoint(x: size * 0.93, y: size * 0.18),
-        controlPoint1: CGPoint(x: size * 0.34, y: size * 0.38),
-        controlPoint2: CGPoint(x: size * 0.62, y: size * 0.02)
+    let ringRect = CGRect(
+        x: size * 0.16,
+        y: size * 0.18,
+        width: size * 0.62,
+        height: size * 0.62
     )
-    wavePath.line(to: CGPoint(x: size * 0.93, y: size * 0.04))
-    wavePath.line(to: CGPoint(x: size * 0.08, y: size * 0.04))
-    wavePath.close()
-    NSColor(calibratedWhite: 1.0, alpha: 0.10).setFill()
-    wavePath.fill()
-    context.restoreGState()
 
-    let cardRect = CGRect(x: size * 0.17, y: size * 0.22, width: size * 0.66, height: size * 0.5)
-    let cardPath = NSBezierPath(roundedRect: cardRect, xRadius: size * 0.08, yRadius: size * 0.08)
-    context.saveGState()
-    context.setShadow(offset: CGSize(width: 0, height: -size * 0.03), blur: size * 0.05, color: NSColor(calibratedWhite: 0, alpha: 0.22).cgColor)
-    NSColor(calibratedWhite: 0.98, alpha: 0.96).setFill()
-    cardPath.fill()
-    context.restoreGState()
-
-    let topBarRect = CGRect(x: cardRect.minX, y: cardRect.maxY - size * 0.12, width: cardRect.width, height: size * 0.12)
-    let topBarPath = NSBezierPath(roundedRect: topBarRect, xRadius: size * 0.08, yRadius: size * 0.08)
-    NSColor(calibratedRed: 0.93, green: 0.95, blue: 0.98, alpha: 1.0).setFill()
-    topBarPath.fill()
-
-    for index in 0..<3 {
-        let dotSize = size * 0.028
-        let dotRect = CGRect(
-            x: cardRect.minX + size * 0.05 + CGFloat(index) * size * 0.045,
-            y: topBarRect.midY - dotSize / 2,
-            width: dotSize,
-            height: dotSize
-        )
-        let dotPath = NSBezierPath(ovalIn: dotRect)
-        [
-            NSColor(calibratedRed: 0.98, green: 0.41, blue: 0.39, alpha: 1),
-            NSColor(calibratedRed: 0.98, green: 0.76, blue: 0.26, alpha: 1),
-            NSColor(calibratedRed: 0.27, green: 0.84, blue: 0.47, alpha: 1),
-        ][index].setFill()
-        dotPath.fill()
-    }
-
-    let laneX = cardRect.minX + size * 0.11
-    let laneWidth = size * 0.18
-    let laneHeight = size * 0.22
-    let laneY = cardRect.minY + size * 0.09
-    for row in 0..<3 {
-        let y = laneY + CGFloat(row) * size * 0.075
-        let bar = NSBezierPath(roundedRect: CGRect(x: laneX, y: y, width: laneWidth, height: laneHeight * 0.16), xRadius: size * 0.02, yRadius: size * 0.02)
-        NSColor(calibratedRed: 0.82, green: 0.88, blue: 0.95, alpha: 1).setFill()
-        bar.fill()
-    }
-
-    let profileCenter = CGPoint(x: cardRect.maxX - size * 0.19, y: cardRect.minY + size * 0.20)
-    let profileRadius = size * 0.11
-    let profileCircle = NSBezierPath(ovalIn: CGRect(x: profileCenter.x - profileRadius, y: profileCenter.y - profileRadius, width: profileRadius * 2, height: profileRadius * 2))
-    let profileGradient = NSGradient(colors: [
-        NSColor(calibratedRed: 0.19, green: 0.76, blue: 0.65, alpha: 1),
-        NSColor(calibratedRed: 0.11, green: 0.45, blue: 0.85, alpha: 1),
-    ])!
-    profileGradient.draw(in: profileCircle, angle: -45)
-
-    let head = NSBezierPath(ovalIn: CGRect(
-        x: profileCenter.x - size * 0.042,
-        y: profileCenter.y + size * 0.01,
-        width: size * 0.084,
-        height: size * 0.084
-    ))
-    NSColor(calibratedWhite: 1.0, alpha: 0.92).setFill()
-    head.fill()
-
-    let body = NSBezierPath(roundedRect: CGRect(
-        x: profileCenter.x - size * 0.073,
-        y: profileCenter.y - size * 0.075,
-        width: size * 0.146,
-        height: size * 0.10
-    ), xRadius: size * 0.05, yRadius: size * 0.05)
-    NSColor(calibratedWhite: 1.0, alpha: 0.92).setFill()
-    body.fill()
-
-    let accentRing = NSBezierPath(ovalIn: CGRect(x: size * 0.61, y: size * 0.54, width: size * 0.20, height: size * 0.20))
-    NSColor(calibratedWhite: 1.0, alpha: 0.20).setStroke()
-    accentRing.lineWidth = size * 0.018
-    accentRing.stroke()
+    drawPortalRing(in: ringRect, lineWidth: size * 0.075, context: context)
+    drawLinkGlyph(at: CGPoint(x: size * 0.55, y: size * 0.84), size: size * 0.18)
+    drawRoutingGlyph(at: CGPoint(x: ringRect.midX, y: ringRect.midY), size: size * 0.23)
 
     image.unlockFocus()
     return image
+}
+
+func drawAtmosphere(in bounds: CGRect, context: CGContext) {
+    let size = bounds.width
+
+    let backdrop = NSBezierPath(roundedRect: bounds, xRadius: size * 0.24, yRadius: size * 0.24)
+    let backgroundGradient = NSGradient(colors: [
+        NSColor(calibratedRed: 0.02, green: 0.05, blue: 0.14, alpha: 1),
+        NSColor(calibratedRed: 0.03, green: 0.09, blue: 0.22, alpha: 1),
+        NSColor(calibratedRed: 0.06, green: 0.18, blue: 0.30, alpha: 1),
+    ])!
+    backgroundGradient.draw(in: backdrop, angle: -34)
+
+    let sideGlowPath = NSBezierPath(ovalIn: CGRect(
+        x: size * 0.62,
+        y: size * 0.44,
+        width: size * 0.42,
+        height: size * 0.50
+    ))
+    let sideGlowGradient = NSGradient(colors: [
+        NSColor(calibratedRed: 0.30, green: 0.93, blue: 0.95, alpha: 0.20),
+        .clear,
+    ])!
+    sideGlowGradient.draw(in: sideGlowPath, relativeCenterPosition: NSPoint(x: 0, y: 0))
+
+    let portalGlowPath = NSBezierPath(ovalIn: CGRect(
+        x: size * 0.10,
+        y: size * 0.16,
+        width: size * 0.74,
+        height: size * 0.70
+    ))
+    let portalGlowGradient = NSGradient(colors: [
+        NSColor(calibratedRed: 0.23, green: 0.70, blue: 1.0, alpha: 0.16),
+        NSColor(calibratedRed: 1.0, green: 0.60, blue: 0.20, alpha: 0.08),
+        .clear,
+    ])!
+    portalGlowGradient.draw(in: portalGlowPath, relativeCenterPosition: NSPoint(x: 0, y: 0))
+
+    let sparkPoints: [(CGFloat, CGFloat, CGFloat, NSColor)] = [
+        (0.22, 0.58, 0.010, NSColor(calibratedRed: 0.44, green: 0.90, blue: 1.0, alpha: 0.95)),
+        (0.30, 0.68, 0.007, NSColor(calibratedRed: 0.71, green: 0.97, blue: 1.0, alpha: 0.72)),
+        (0.83, 0.61, 0.011, NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.44, alpha: 0.9)),
+        (0.78, 0.47, 0.007, NSColor(calibratedRed: 1.0, green: 0.64, blue: 0.33, alpha: 0.62)),
+        (0.74, 0.26, 0.009, NSColor(calibratedRed: 0.47, green: 0.92, blue: 1.0, alpha: 0.76)),
+    ]
+
+    for point in sparkPoints {
+        let diameter = size * point.2
+        let sparkRect = CGRect(
+            x: size * point.0 - diameter / 2,
+            y: size * point.1 - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+        let sparkPath = NSBezierPath(ovalIn: sparkRect)
+        point.3.setFill()
+        sparkPath.fill()
+    }
+
+    context.saveGState()
+    context.setBlendMode(.screen)
+    let floorPath = NSBezierPath()
+    floorPath.move(to: CGPoint(x: size * 0.18, y: size * 0.24))
+    floorPath.curve(
+        to: CGPoint(x: size * 0.82, y: size * 0.20),
+        controlPoint1: CGPoint(x: size * 0.34, y: size * 0.30),
+        controlPoint2: CGPoint(x: size * 0.61, y: size * 0.13)
+    )
+    floorPath.line(to: CGPoint(x: size * 0.82, y: size * 0.12))
+    floorPath.line(to: CGPoint(x: size * 0.18, y: size * 0.12))
+    floorPath.close()
+    NSColor(calibratedWhite: 1.0, alpha: 0.05).setFill()
+    floorPath.fill()
+    context.restoreGState()
+}
+
+func drawPortalRing(in rect: CGRect, lineWidth: CGFloat, context: CGContext) {
+    let arcs: [(NSColor, CGFloat, CGFloat, CGFloat)] = [
+        (NSColor(calibratedRed: 0.39, green: 0.95, blue: 1.0, alpha: 1), 128, 356, 0.48),
+        (NSColor(calibratedRed: 0.34, green: 0.64, blue: 1.0, alpha: 1), 154, 20, 0.34),
+        (NSColor(calibratedRed: 1.0, green: 0.63, blue: 0.22, alpha: 0.98), 206, 74, 0.40),
+    ]
+
+    for (color, start, end, glowOpacity) in arcs {
+        let path = NSBezierPath()
+        path.appendArc(
+            withCenter: CGPoint(x: rect.midX, y: rect.midY),
+            radius: rect.width / 2,
+            startAngle: start,
+            endAngle: end,
+            clockwise: false
+        )
+        path.lineWidth = lineWidth
+
+        context.saveGState()
+        context.setShadow(offset: .zero, blur: rect.width * 0.07, color: color.withAlphaComponent(glowOpacity).cgColor)
+        color.setStroke()
+        path.stroke()
+        context.restoreGState()
+    }
+}
+
+func drawRoutingGlyph(at center: CGPoint, size: CGFloat) {
+    let arrowFill = NSColor(calibratedWhite: 1.0, alpha: 0.98)
+    let outline = NSColor(calibratedRed: 0.08, green: 0.15, blue: 0.33, alpha: 0.35)
+    let head = size * 0.32
+    let stemThickness = size * 0.12
+    let stemLength = size * 0.44
+
+    for angle in [0.0, 90.0, 180.0, 270.0] {
+        var transform = AffineTransform(translationByX: center.x, byY: center.y)
+        transform.rotate(byDegrees: angle)
+        let path = NSBezierPath()
+        path.move(to: transform.transform(CGPoint(x: -stemThickness * 0.5, y: stemThickness * 0.55)))
+        path.line(to: transform.transform(CGPoint(x: -stemThickness * 0.5, y: stemLength)))
+        path.line(to: transform.transform(CGPoint(x: -head * 0.70, y: stemLength)))
+        path.line(to: transform.transform(CGPoint(x: 0, y: stemLength + head)))
+        path.line(to: transform.transform(CGPoint(x: head * 0.70, y: stemLength)))
+        path.line(to: transform.transform(CGPoint(x: stemThickness * 0.5, y: stemLength)))
+        path.line(to: transform.transform(CGPoint(x: stemThickness * 0.5, y: stemThickness * 0.55)))
+        path.close()
+        arrowFill.setFill()
+        path.fill()
+        outline.setStroke()
+        path.lineWidth = max(1.2, size * 0.018)
+        path.stroke()
+    }
+
+    let hubRect = CGRect(
+        x: center.x - size * 0.15,
+        y: center.y - size * 0.15,
+        width: size * 0.30,
+        height: size * 0.30
+    )
+    let hub = NSBezierPath(ovalIn: hubRect)
+    let hubGradient = NSGradient(colors: [
+        NSColor(calibratedWhite: 1.0, alpha: 1),
+        NSColor(calibratedRed: 0.88, green: 0.94, blue: 1.0, alpha: 1),
+    ])!
+    hubGradient.draw(in: hub, angle: 90)
+    outline.setStroke()
+    hub.lineWidth = max(1.4, size * 0.022)
+    hub.stroke()
+}
+
+func drawLinkGlyph(at center: CGPoint, size: CGFloat) {
+    let strokeColor = NSColor(calibratedWhite: 1.0, alpha: 0.96)
+    let secondaryStroke = NSColor(calibratedWhite: 1.0, alpha: 0.72)
+    let lineWidth = max(1.8, size * 0.14)
+
+    func rotatedLoop(center: CGPoint, width: CGFloat, height: CGFloat, angle: CGFloat) -> NSBezierPath {
+        let rect = CGRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height)
+        let path = NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2)
+        var transform = AffineTransform()
+        transform.translate(x: center.x, y: center.y)
+        transform.rotate(byDegrees: angle)
+        transform.translate(x: -center.x, y: -center.y)
+        path.transform(using: transform)
+        return path
+    }
+
+    let leftCenter = CGPoint(x: center.x - size * 0.10, y: center.y + size * 0.02)
+    let rightCenter = CGPoint(x: center.x + size * 0.12, y: center.y - size * 0.02)
+
+    let leftLoop = rotatedLoop(center: leftCenter, width: size * 0.38, height: size * 0.20, angle: 40)
+    let rightLoop = rotatedLoop(center: rightCenter, width: size * 0.38, height: size * 0.20, angle: 40)
+
+    strokeColor.setStroke()
+    leftLoop.lineWidth = lineWidth
+    rightLoop.lineWidth = lineWidth
+    leftLoop.stroke()
+    rightLoop.stroke()
+
+    let globeCenter = CGPoint(x: center.x - size * 0.33, y: center.y + size * 0.11)
+    let globeRadius = size * 0.13
+    let globe = NSBezierPath(ovalIn: CGRect(
+        x: globeCenter.x - globeRadius,
+        y: globeCenter.y - globeRadius,
+        width: globeRadius * 2,
+        height: globeRadius * 2
+    ))
+    secondaryStroke.setStroke()
+    globe.lineWidth = max(1.2, size * 0.07)
+    globe.stroke()
+
+    for offset in [-0.48, 0.0, 0.48] {
+        let meridian = NSBezierPath()
+        meridian.move(to: CGPoint(x: globeCenter.x + globeRadius * offset, y: globeCenter.y - globeRadius))
+        meridian.curve(
+            to: CGPoint(x: globeCenter.x + globeRadius * offset, y: globeCenter.y + globeRadius),
+            controlPoint1: CGPoint(x: globeCenter.x + globeRadius * (offset + 0.18), y: globeCenter.y - globeRadius * 0.42),
+            controlPoint2: CGPoint(x: globeCenter.x + globeRadius * (offset - 0.18), y: globeCenter.y + globeRadius * 0.42)
+        )
+        meridian.lineWidth = max(1.0, size * 0.05)
+        meridian.stroke()
+    }
 }
 
 func writePNG(image: NSImage, to url: URL) throws {

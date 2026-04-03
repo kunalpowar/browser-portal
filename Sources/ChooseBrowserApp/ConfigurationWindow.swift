@@ -353,19 +353,9 @@ struct ConfigurationView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentColor.opacity(0.9), Color.accentColor.opacity(0.55)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Image(systemName: "globe.americas.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
+            Image(nsImage: BrandAssets.headerMarkImage(size: 58))
+                .interpolation(.high)
+                .antialiased(true)
             .frame(width: 58, height: 58)
 
             VStack(alignment: .leading, spacing: 10) {
