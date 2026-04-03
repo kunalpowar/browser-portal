@@ -12,6 +12,8 @@ It was written entirely with AI assistance, and it has only been tested on macOS
 
 If you use it, treat it like a practical side project rather than polished production software.
 
+Unsigned release builds are supported. That keeps the project cheap to ship, but macOS may warn that the app is from an unidentified developer the first time someone opens it.
+
 ## What It Does
 
 - Supports Google Chrome only, for now.
@@ -51,9 +53,32 @@ If you want explicit wildcard matching, you can also use:
 - `*` for any number of characters
 - `?` for a single character
 
+## Install From A Release
+
+The easiest path is to download the latest `.zip` from GitHub Releases, extract it, and move `Browser Portal.app` into `Applications`.
+
+Because the app is not signed or notarized, macOS may show a warning the first time it launches. If that happens:
+
+1. Open `System Settings > Privacy & Security`
+2. Find the blocked app warning for Browser Portal
+3. Click `Open Anyway`
+
+You can also right-click the app in Finder and choose `Open` the first time.
+
+## Install With Homebrew
+
+Once the Homebrew tap is published, installs look like this:
+
+```bash
+brew tap kunalpowar/tap
+brew install --cask browser-portal
+```
+
+Homebrew will install the same unsigned app bundle from GitHub Releases, so the same macOS warning may still appear on first launch.
+
 ## Clone The Repo
 
-There is no packaged release flow yet, so today the intended path is: clone, build, install locally.
+If you want to build it yourself:
 
 ```bash
 git clone <your-repo-url> browser-portal
@@ -160,6 +185,62 @@ The app UI also includes an uninstall option.
 
 If Browser Portal is your current default browser, switch macOS back to another browser after uninstalling it.
 
+## Release Flow
+
+This repo includes a GitHub Actions release workflow for unsigned builds.
+
+To cut a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That workflow will:
+
+- run `swift test`
+- build `Browser Portal.app`
+- package `Browser.Portal-v0.1.0.zip`
+- generate a SHA256 file for the zip
+- generate a ready-to-publish Homebrew cask file
+- attach all three files to the GitHub Release
+
+The release packager can also be run locally:
+
+```bash
+./scripts/make-release.sh v0.1.0
+```
+
+Generated release files land in:
+
+```text
+dist/release/
+```
+
+## Homebrew Tap Setup
+
+Browser Portal is set up to publish into a shared tap repository:
+
+```text
+kunalpowar/homebrew-tap
+```
+
+After a release is created, copy the generated cask file into:
+
+```text
+Casks/browser-portal.rb
+```
+
+inside the tap repo, then push that repo.
+
+If you want the cask to update automatically after each release, add a repository secret named `HOMEBREW_TAP_TOKEN` to this repo. That token should have write access to `kunalpowar/homebrew-tap`.
+
+The cask template used to generate release-ready values lives here:
+
+```text
+packaging/homebrew/Casks/browser-portal.rb.template
+```
+
 ## Current Scope
 
 - macOS only
@@ -172,7 +253,8 @@ That narrow scope is intentional. This tool is meant to do one job well before i
 ## Next Steps
 
 - Add support for more browsers, while keeping profile routing simple.
-- Package signed installable app builds instead of relying on local scripts.
+- Improve the Homebrew tap flow so the cask can be updated automatically after each release.
+- Add signed and notarized builds later if the project grows enough to justify Apple Developer Program costs.
 - Add import/export for rules and a cleaner onboarding flow.
 - Improve rule matching with hostname/path helpers instead of raw pattern strings.
-- Add release automation, versioned builds, and a lightweight update story.
+- Add a lightweight update story for people already running the app.
