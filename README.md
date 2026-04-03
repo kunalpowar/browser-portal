@@ -189,21 +189,20 @@ If Browser Portal is your current default browser, switch macOS back to another 
 
 This repo includes a GitHub Actions release workflow for unsigned builds.
 
-To cut a release:
+Every push to `main` creates the next patch release automatically.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+For example, if the latest tag is `v0.1.0`, the next push to `main` will publish `v0.1.1`.
 
-That workflow will:
+You can also trigger the workflow manually from GitHub Actions and optionally supply an explicit version such as `v0.2.0`.
+
+Each automated release will:
 
 - run `swift test`
 - build `Browser Portal.app`
-- package `Browser.Portal-v0.1.0.zip`
+- package `Browser.Portal-vX.Y.Z.zip`
 - generate a SHA256 file for the zip
-- generate a ready-to-publish Homebrew cask file
-- attach all three files to the GitHub Release
+- create or update the GitHub Release and tag
+- update `kunalpowar/homebrew-tap` with the generated Homebrew cask when `HOMEBREW_TAP_TOKEN` is configured
 
 The release packager can also be run locally:
 
