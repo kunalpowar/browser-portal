@@ -45,17 +45,20 @@ final class ConfigurationWindowController: NSWindowController {
 
 @MainActor
 final class ConfigurationViewModel: ObservableObject {
-    @Published var profileOptions: [ProfileOption] = []
+    @Published var availableBrowsers: [ManagedBrowser] = ManagedBrowser.allCases
+    @Published var profileOptionsByBrowser: [ManagedBrowser: [ProfileOption]] = [:]
     @Published var launchAtLoginEnabled = false
     @Published var launchAtLoginDescription = ""
     @Published var launchAtLoginRequiresApproval = false
     @Published var unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode = .lastActiveBrowser
+    @Published var defaultBrowser: ManagedBrowser = .chrome
     @Published var defaultProfileEmail: String?
     @Published var defaultBrowserStatus = DefaultBrowserStatus(isDefaultForHTTP: false, isDefaultForHTTPS: false)
-    @Published var lastUsedProfileEmail: String?
+    @Published var lastUsedProfileEmailByBrowser: [ManagedBrowser: String] = [:]
     @Published var logEntries: [AppLogEntry] = []
     @Published var rules: [EditableRule] = []
     @Published var draftPattern = ""
+    @Published var draftBrowser: ManagedBrowser = .chrome
     @Published var draftProfileEmail = ""
     @Published var configPath = ""
     @Published var logPath = ""
@@ -92,33 +95,72 @@ final class ConfigurationViewModel: ObservableObject {
         draftPattern.trimmedNilIfEmpty != nil && draftProfileEmail.trimmedNilIfEmpty != nil
     }
 
+    var draftProfileOptions: [ProfileOption] {
+        profileOptions(for: draftBrowser)
+    }
+
+    var defaultProfileOptions: [ProfileOption] {
+        profileOptions(for: defaultBrowser)
+    }
+
     func load() {
         do {
             isHydrating = true
 
-            let catalog = try router.availableProfiles()
+            let catalogsByBrowser = try router.availableProfilesByBrowser()
             let config = try router.loadConfig()
-            let knownEmails = catalog.availableEmails
+            let installedBrowsers = Set(router.installedBrowsers())
+            let configuredBrowsers = Set(config.rules.map(\.browser)).union([config.effectiveDefaultBrowser])
+            let knownEmails = Set(catalogsByBrowser.values.flatMap(\.availableEmails))
 
-            profileOptions = ProfileOption.merged(
-                chromeProfiles: catalog.profiles,
-                configuredEmails: Set(config.rules.map(\.profileEmail)).union([config.defaultProfileEmail].compactMap { $0 }),
-                lastUsedDirectoryName: catalog.lastUsedDirectoryName
-            )
+            availableBrowsers = ManagedBrowser.allCases.filter { browser in
+                installedBrowsers.contains(browser) || configuredBrowsers.contains(browser)
+            }
+
+            if availableBrowsers.isEmpty {
+                availableBrowsers = ManagedBrowser.allCases
+            }
+
+            profileOptionsByBrowser = Dictionary(uniqueKeysWithValues: availableBrowsers.map { browser in
+                let catalog = catalogsByBrowser[browser] ?? ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
+                let configuredEmails = Set(config.rules.filter { $0.browser == browser }.map(\.profileEmail))
+                    .union(config.effectiveDefaultBrowser == browser ? [config.defaultProfileEmail].compactMap { $0 } : [])
+
+                return (
+                    browser,
+                    ProfileOption.merged(
+                        chromiumProfiles: catalog.profiles,
+                        configuredEmails: configuredEmails,
+                        lastUsedDirectoryName: catalog.lastUsedDirectoryName,
+                        browser: browser
+                    )
+                )
+            })
             let launchAtLoginState = launchAtLoginService.currentState()
             launchAtLoginEnabled = launchAtLoginState.isEnabled
             launchAtLoginDescription = launchAtLoginState.description
             launchAtLoginRequiresApproval = launchAtLoginState.requiresApproval
             unmatchedLinkBehaviorMode = config.effectiveUnmatchedLinkBehaviorMode
             defaultBrowserStatus = defaultBrowserService.currentStatus(bundleIdentifier: Bundle.main.bundleIdentifier)
+            defaultBrowser = config.effectiveDefaultBrowser
             defaultProfileEmail = config.defaultProfileEmail
-            lastUsedProfileEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
+            lastUsedProfileEmailByBrowser = Dictionary(
+                uniqueKeysWithValues: availableBrowsers.compactMap { browser in
+                    let catalog = catalogsByBrowser[browser] ?? ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
+                    guard let email = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName) else {
+                        return nil
+                    }
+
+                    return (browser, email)
+                }
+            )
             rules = config.rules.map(EditableRule.init)
             draftPattern = ""
-            draftProfileEmail = config.defaultProfileEmail ?? profileOptions.first?.email ?? ""
+            draftBrowser = rules.last?.browser ?? config.effectiveDefaultBrowser
+            draftProfileEmail = preferredProfileEmail(for: draftBrowser, fallback: config.defaultProfileEmail)
 
             if knownEmails.isEmpty {
-                statusMessage = "\(AppIdentity.displayName) could not find signed-in Chrome profile emails yet."
+                statusMessage = "\(AppIdentity.displayName) could not find signed-in browser profile emails yet."
             } else {
                 statusMessage = "Loaded \(rules.count) rule" + (rules.count == 1 ? "." : "s.")
             }
@@ -139,7 +181,7 @@ final class ConfigurationViewModel: ObservableObject {
             rules.append(EditableRule(rule: committedRule))
             draftPattern = ""
             if draftProfileEmail.trimmedNilIfEmpty == nil {
-                draftProfileEmail = defaultProfileEmail ?? profileOptions.first?.email ?? ""
+                draftProfileEmail = preferredProfileEmail(for: draftBrowser, fallback: draftBrowser == defaultBrowser ? defaultProfileEmail : nil)
             }
             try persistCommittedState(status: "Rule added.")
         } catch {
@@ -170,6 +212,24 @@ final class ConfigurationViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             statusMessage = nil
         }
+    }
+
+    func updateDraftBrowser(_ browser: ManagedBrowser) {
+        draftBrowser = browser
+
+        if !profileOptions(for: browser).contains(where: { $0.email == draftProfileEmail }) {
+            draftProfileEmail = preferredProfileEmail(for: browser, fallback: browser == defaultBrowser ? defaultProfileEmail : nil)
+        }
+    }
+
+    func updateDefaultBrowser(_ browser: ManagedBrowser) {
+        defaultBrowser = browser
+
+        if !profileOptions(for: browser).contains(where: { $0.email == defaultProfileEmail }) {
+            defaultProfileEmail = preferredProfileEmail(for: browser, fallback: defaultProfileEmail)
+        }
+
+        saveFallbackBehaviorIfNeeded()
     }
 
     func saveLaunchAtLoginSetting() {
@@ -239,11 +299,12 @@ final class ConfigurationViewModel: ObservableObject {
                 throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a profile email.")
             }
 
-            return URLRule(pattern: pattern, profileEmail: profileEmail)
+            return URLRule(pattern: pattern, profileEmail: profileEmail, browser: rule.browser)
         }
 
         return ChooseBrowserConfig(
             unmatchedLinkBehaviorMode: unmatchedLinkBehaviorMode,
+            defaultBrowser: defaultBrowser,
             defaultProfileEmail: defaultProfileEmail?.trimmedNilIfEmpty,
             rules: committedRules
         )
@@ -261,7 +322,19 @@ final class ConfigurationViewModel: ObservableObject {
             throw ChooseBrowserError.invalidConfiguration("Rule \(index + 1) is missing a profile email.")
         }
 
-        return URLRule(pattern: pattern, profileEmail: profileEmail)
+        return URLRule(pattern: pattern, profileEmail: profileEmail, browser: draftBrowser)
+    }
+
+    private func profileOptions(for browser: ManagedBrowser) -> [ProfileOption] {
+        profileOptionsByBrowser[browser] ?? []
+    }
+
+    private func preferredProfileEmail(for browser: ManagedBrowser, fallback: String?) -> String {
+        if let fallback, profileOptions(for: browser).contains(where: { $0.email == fallback }) {
+            return fallback
+        }
+
+        return profileOptions(for: browser).first?.email ?? fallback ?? ""
     }
 }
 
@@ -335,8 +408,13 @@ struct ConfigurationView: View {
         .onChange(of: viewModel.launchAtLoginEnabled) { _ in
             viewModel.saveLaunchAtLoginSetting()
         }
+        .onChange(of: viewModel.defaultBrowser) { _ in
+            if viewModel.unmatchedLinkBehaviorMode != .lastActiveBrowser {
+                viewModel.saveFallbackBehaviorIfNeeded()
+            }
+        }
         .onChange(of: viewModel.defaultProfileEmail) { _ in
-            if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
+            if viewModel.unmatchedLinkBehaviorMode == .browserProfile {
                 viewModel.saveFallbackBehaviorIfNeeded()
             }
         }
@@ -417,23 +495,38 @@ struct ConfigurationView: View {
                         Picker("Unmatched links", selection: $viewModel.unmatchedLinkBehaviorMode) {
                             Text("Use last active browser")
                                 .tag(UnmatchedLinkBehaviorMode.lastActiveBrowser)
-                            Text("Use Chrome's last used profile")
-                                .tag(UnmatchedLinkBehaviorMode.chromeLastUsed)
-                            Text("Use a specific Chrome profile")
-                                .tag(UnmatchedLinkBehaviorMode.chromeProfile)
+                            Text("Use a browser's last used profile")
+                                .tag(UnmatchedLinkBehaviorMode.browserLastUsed)
+                            Text("Use a specific browser profile")
+                                .tag(UnmatchedLinkBehaviorMode.browserProfile)
                         }
                         .labelsHidden()
                     }
 
-                    if viewModel.unmatchedLinkBehaviorMode == .chromeProfile {
+                    if viewModel.unmatchedLinkBehaviorMode != .lastActiveBrowser {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Chrome Profile")
+                            Text("Browser")
                                 .font(.headline)
-                            Picker("Chrome profile", selection: $viewModel.defaultProfileEmail) {
+                            Picker("Browser", selection: $viewModel.defaultBrowser) {
+                                ForEach(viewModel.availableBrowsers, id: \.self) { browser in
+                                    Text(browser.shortDisplayName)
+                                        .tag(browser)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 180, alignment: .leading)
+                        }
+                    }
+
+                    if viewModel.unmatchedLinkBehaviorMode == .browserProfile {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Profile")
+                                .font(.headline)
+                            Picker("Profile", selection: $viewModel.defaultProfileEmail) {
                                 Text("Choose a profile")
                                     .tag(Optional<String>.none)
 
-                                ForEach(viewModel.profileOptions) { option in
+                                ForEach(viewModel.defaultProfileOptions) { option in
                                     Text(option.label)
                                         .tag(option.email as String?)
                                 }
@@ -517,8 +610,13 @@ struct ConfigurationView: View {
 
                 DraftRuleComposer(
                     pattern: $viewModel.draftPattern,
+                    browser: Binding(
+                        get: { viewModel.draftBrowser },
+                        set: { viewModel.updateDraftBrowser($0) }
+                    ),
                     profileEmail: $viewModel.draftProfileEmail,
-                    profileOptions: viewModel.profileOptions,
+                    availableBrowsers: viewModel.availableBrowsers,
+                    profileOptions: viewModel.draftProfileOptions,
                     canAdd: viewModel.canAddDraftRule,
                     onAdd: viewModel.addDraftRule
                 )
@@ -532,7 +630,8 @@ struct ConfigurationView: View {
                             ForEach(viewModel.rules) { rule in
                                 CompactRuleRow(
                                     rule: rule,
-                                    profileLabel: label(for: rule.profileEmail)
+                                    browserLabel: rule.browser.shortDisplayName,
+                                    profileLabel: label(for: rule.profileEmail, browser: rule.browser)
                                 ) {
                                     viewModel.removeRule(id: rule.id)
                                 }
@@ -663,24 +762,24 @@ struct ConfigurationView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func label(for email: String) -> String {
-        viewModel.profileOptions.first(where: { $0.email == email })?.label ?? email
+    private func label(for email: String, browser: ManagedBrowser) -> String {
+        viewModel.profileOptionsByBrowser[browser]?.first(where: { $0.email == email })?.label ?? email
     }
 
     private var unmatchedLinksDescription: String {
         switch viewModel.unmatchedLinkBehaviorMode {
         case .lastActiveBrowser:
             return "Unmatched links go to the most recently active browser app."
-        case .chromeLastUsed:
-            if let email = viewModel.lastUsedProfileEmail {
-                return "Unmatched links open in Chrome's last used profile, currently \(email)."
+        case .browserLastUsed:
+            if let email = viewModel.lastUsedProfileEmailByBrowser[viewModel.defaultBrowser] {
+                return "Unmatched links open in \(viewModel.defaultBrowser.shortDisplayName)'s last used profile, currently \(email)."
             }
-            return "Unmatched links open in Chrome's last used profile."
-        case .chromeProfile:
+            return "Unmatched links open in \(viewModel.defaultBrowser.shortDisplayName)'s last used profile."
+        case .browserProfile:
             if let email = viewModel.defaultProfileEmail {
-                return "Unmatched links always open in Chrome using \(email)."
+                return "Unmatched links always open in \(viewModel.defaultBrowser.shortDisplayName) using \(email)."
             }
-            return "Pick the Chrome profile that should receive unmatched links."
+            return "Pick the \(viewModel.defaultBrowser.shortDisplayName) profile that should receive unmatched links."
         }
     }
 
@@ -696,7 +795,9 @@ struct ConfigurationView: View {
 
 struct DraftRuleComposer: View {
     @Binding var pattern: String
+    @Binding var browser: ManagedBrowser
     @Binding var profileEmail: String
+    let availableBrowsers: [ManagedBrowser]
     let profileOptions: [ProfileOption]
     let canAdd: Bool
     let onAdd: () -> Void
@@ -707,7 +808,7 @@ struct DraftRuleComposer: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("New rule")
                         .font(.headline)
-                    Text("Paste a URL prefix or wildcard pattern, then pick the Chrome profile that should receive it. Use * for wildcard matching.")
+                    Text("Paste a URL prefix or wildcard pattern, choose the browser and profile, then add the rule. Use * for wildcard matching.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -738,14 +839,27 @@ struct DraftRuleComposer: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Chrome Profile")
+                    Text("Browser")
+                        .font(.headline)
+                    Picker("Browser", selection: $browser) {
+                        ForEach(availableBrowsers, id: \.self) { availableBrowser in
+                            Text(availableBrowser.shortDisplayName)
+                                .tag(availableBrowser)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180, alignment: .leading)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Profile")
                         .font(.headline)
 
                     if profileOptions.isEmpty {
                         PasteFriendlyTextField(text: $profileEmail, placeholder: "person@example.com")
-                            .frame(width: 300)
+                        .frame(width: 300)
                     } else {
-                        Picker("Chrome profile", selection: $profileEmail) {
+                        Picker("Profile", selection: $profileEmail) {
                             ForEach(profileOptions) { option in
                                 Text(option.label)
                                     .tag(option.email)
@@ -771,6 +885,7 @@ struct DraftRuleComposer: View {
 
 struct CompactRuleRow: View {
     let rule: EditableRule
+    let browserLabel: String
     let profileLabel: String
     let onDelete: () -> Void
 
@@ -786,7 +901,7 @@ struct CompactRuleRow: View {
                     Image(systemName: "globe")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text("Chrome")
+                    Text(browserLabel)
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12, weight: .semibold))
                     Text("·")
@@ -830,7 +945,7 @@ struct EmptyRulesView: View {
                 .foregroundStyle(.secondary)
             Text("No rules yet")
                 .font(.system(size: 18, weight: .semibold))
-            Text("Paste a URL prefix above, choose the profile, and click + to add your first rule.")
+            Text("Paste a URL prefix above, choose the browser and profile, and click + to add your first rule.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -911,14 +1026,15 @@ struct ProfileOption: Identifiable, Hashable {
     var id: String { email }
 
     static func merged(
-        chromeProfiles: [ChromeProfile],
+        chromiumProfiles: [ChromiumProfile],
         configuredEmails: Set<String>,
-        lastUsedDirectoryName: String?
+        lastUsedDirectoryName: String?,
+        browser: ManagedBrowser
     ) -> [ProfileOption] {
         var orderedEmails: [String] = []
         var labelsByEmail: [String: String] = [:]
 
-        for profile in chromeProfiles {
+        for profile in chromiumProfiles {
             guard let email = profile.email?.trimmedNilIfEmpty else {
                 continue
             }
@@ -934,7 +1050,7 @@ struct ProfileOption: Identifiable, Hashable {
 
         for email in configuredEmails.sorted() where labelsByEmail[email] == nil {
             orderedEmails.append(email)
-            labelsByEmail[email] = "\(email) - missing in Chrome"
+            labelsByEmail[email] = "\(email) - missing in \(browser.shortDisplayName)"
         }
 
         return orderedEmails.compactMap { email in
@@ -950,16 +1066,18 @@ struct ProfileOption: Identifiable, Hashable {
 struct EditableRule: Identifiable, Equatable {
     let id: UUID
     var pattern: String
+    var browser: ManagedBrowser
     var profileEmail: String
 
-    init(id: UUID = UUID(), pattern: String, profileEmail: String) {
+    init(id: UUID = UUID(), pattern: String, browser: ManagedBrowser, profileEmail: String) {
         self.id = id
         self.pattern = pattern
+        self.browser = browser
         self.profileEmail = profileEmail
     }
 
     init(rule: URLRule) {
-        self.init(pattern: rule.pattern, profileEmail: rule.profileEmail)
+        self.init(pattern: rule.pattern, browser: rule.browser, profileEmail: rule.profileEmail)
     }
 }
 
