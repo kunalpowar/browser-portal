@@ -707,7 +707,7 @@ struct DraftRuleComposer: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("New rule")
                         .font(.headline)
-                    Text("Paste a URL prefix or wildcard pattern, then pick the Chrome profile that should receive it.")
+                    Text("Paste a URL prefix or wildcard pattern, then pick the Chrome profile that should receive it. Use * for wildcard matching.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
