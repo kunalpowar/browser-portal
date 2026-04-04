@@ -145,11 +145,11 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             do {
                 switch try router.plan(for: url) {
-                case let .routeInChrome(decision):
+                case let .routeInManagedBrowser(decision):
                     if decision.matchedRule != nil {
-                        logStore.append("Routing matched URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
+                        logStore.append("Routing matched URL to \(decision.browser.shortDisplayName) profile \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
                     } else {
-                        logStore.append("Routing unmatched URL to configured Chrome destination \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
+                        logStore.append("Routing unmatched URL to configured \(decision.browser.shortDisplayName) destination \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
                     }
                     try router.open(url: decision.url)
                 case let .fallbackToSystem(fallbackURL):

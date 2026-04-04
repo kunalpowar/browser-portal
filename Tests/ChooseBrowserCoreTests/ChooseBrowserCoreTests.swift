@@ -22,7 +22,7 @@ func configReturnsFirstMatchingRule() throws {
         defaultProfileEmail: "personal@example.com",
         rules: [
             URLRule(pattern: "https://github.com/my-org/*", profileEmail: "work@example.com"),
-            URLRule(pattern: "https://github.com/*", profileEmail: "personal@example.com"),
+            URLRule(pattern: "https://github.com/*", profileEmail: "personal@example.com", browser: .brave),
         ]
     )
 
@@ -38,11 +38,11 @@ func routingPlanFallsBackWhenNoRuleMatches() throws {
     let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
     let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
-    let chromeEnvironment = makeTemporaryChromeEnvironment(in: directoryURL)
+    let environmentProvider = makeTemporaryEnvironmentProvider(in: directoryURL)
     let router = BrowserRouter(
         fileManager: fileManager,
         configManager: configManager,
-        chromeEnvironmentProvider: { chromeEnvironment }
+        environmentProvider: environmentProvider
     )
 
     defer {
@@ -66,19 +66,19 @@ func routingPlanFallsBackWhenNoRuleMatches() throws {
 }
 
 @Test
-func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
+func routingPlanUsesConfiguredBrowserProfileForUnmatchedLinks() throws {
     let fileManager = FileManager.default
     let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
     let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
     let localStateURL = directoryURL
+        .appending(path: "Google", directoryHint: .isDirectory)
         .appending(path: "Chrome", directoryHint: .isDirectory)
         .appending(path: "Local State", directoryHint: .notDirectory)
-    let chromeEnvironment = makeTemporaryChromeEnvironment(in: directoryURL, localStateURL: localStateURL)
     let router = BrowserRouter(
         fileManager: fileManager,
         configManager: configManager,
-        chromeEnvironmentProvider: { chromeEnvironment }
+        environmentProvider: makeTemporaryEnvironmentProvider(in: directoryURL, localStateURLs: [.chrome: localStateURL])
     )
 
     defer {
@@ -112,7 +112,8 @@ func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
 
     try configManager.save(
         config: ChooseBrowserConfig(
-            unmatchedLinkBehaviorMode: .chromeProfile,
+            unmatchedLinkBehaviorMode: .browserProfile,
+            defaultBrowser: .chrome,
             defaultProfileEmail: "work@example.com",
             rules: []
         )
@@ -121,32 +122,98 @@ func routingPlanUsesConfiguredChromeProfileForUnmatchedLinks() throws {
     let url = try #require(URL(string: "https://github.com/openai"))
     let plan = try router.plan(for: url)
 
-    guard case let .routeInChrome(decision) = plan else {
-        Issue.record("Expected unmatched links to route into Chrome.")
+    guard case let .routeInManagedBrowser(decision) = plan else {
+        Issue.record("Expected unmatched links to route into a managed browser.")
         return
     }
 
     #expect(decision.matchedRule == nil)
+    #expect(decision.browser == .chrome)
     #expect(decision.profileEmail == "work@example.com")
     #expect(decision.profileDirectoryName == "Profile 4")
 }
 
-private func makeTemporaryChromeEnvironment(in directoryURL: URL, localStateURL: URL? = nil) -> ChromeEnvironment {
-    let appURL = directoryURL.appending(path: "Google Chrome.app", directoryHint: .isDirectory)
-    let binaryURL = appURL
-        .appending(path: "Contents", directoryHint: .isDirectory)
-        .appending(path: "MacOS", directoryHint: .isDirectory)
-        .appending(path: "Google Chrome", directoryHint: .notDirectory)
-
-    return ChromeEnvironment(
-        appURL: appURL,
-        binaryURL: binaryURL,
-        localStateURL: localStateURL ?? directoryURL.appending(path: "Local State", directoryHint: .notDirectory)
+@Test
+func routingPlanUsesMatchedRuleBrowser() throws {
+    let fileManager = FileManager.default
+    let directoryURL = fileManager.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    let configURL = directoryURL.appending(path: "config.json", directoryHint: .notDirectory)
+    let configManager = ConfigManager(fileManager: fileManager, configurationFileURL: configURL)
+    let braveLocalStateURL = directoryURL
+        .appending(path: "BraveSoftware", directoryHint: .isDirectory)
+        .appending(path: "Brave-Browser", directoryHint: .isDirectory)
+        .appending(path: "Local State", directoryHint: .notDirectory)
+    let router = BrowserRouter(
+        fileManager: fileManager,
+        configManager: configManager,
+        environmentProvider: makeTemporaryEnvironmentProvider(in: directoryURL, localStateURLs: [.brave: braveLocalStateURL])
     )
+
+    defer {
+        try? fileManager.removeItem(at: directoryURL)
+    }
+
+    try fileManager.createDirectory(at: braveLocalStateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(
+        """
+        {
+          "profile": {
+            "last_used": "Default",
+            "info_cache": {
+              "Default": {
+                "name": "Brave Work",
+                "user_name": "work@example.com"
+              }
+            }
+          }
+        }
+        """.utf8
+    )
+    .write(to: braveLocalStateURL, options: .atomic)
+
+    try configManager.save(
+        config: ChooseBrowserConfig(
+            defaultProfileEmail: nil,
+            rules: [
+                URLRule(pattern: "https://gitlab.example.com/*", profileEmail: "work@example.com", browser: .brave)
+            ]
+        )
+    )
+
+    let plan = try router.plan(for: try #require(URL(string: "https://gitlab.example.com/group/repo")))
+
+    guard case let .routeInManagedBrowser(decision) = plan else {
+        Issue.record("Expected a managed browser route.")
+        return
+    }
+
+    #expect(decision.browser == .brave)
+    #expect(decision.profileEmail == "work@example.com")
+    #expect(decision.profileDirectoryName == "Default")
+}
+
+private func makeTemporaryEnvironmentProvider(
+    in directoryURL: URL,
+    localStateURLs: [ManagedBrowser: URL] = [:]
+) -> (ManagedBrowser) throws -> ChromiumEnvironment {
+    { browser in
+        let appURL = directoryURL.appending(path: browser.applicationName, directoryHint: .isDirectory)
+        let binaryURL = appURL
+            .appending(path: "Contents", directoryHint: .isDirectory)
+            .appending(path: "MacOS", directoryHint: .isDirectory)
+            .appending(path: browser.executableName, directoryHint: .notDirectory)
+
+        return ChromiumEnvironment(
+            browser: browser,
+            appURL: appURL,
+            binaryURL: binaryURL,
+            localStateURL: localStateURLs[browser] ?? directoryURL.appending(path: "\(browser.rawValue)-Local State", directoryHint: .notDirectory)
+        )
+    }
 }
 
 @Test
-func chromeLocalStateParserExtractsProfilesAndLastUsedDirectory() throws {
+func chromiumLocalStateParserExtractsProfilesAndLastUsedDirectory() throws {
     let data = Data(
         """
         {
@@ -171,7 +238,7 @@ func chromeLocalStateParserExtractsProfilesAndLastUsedDirectory() throws {
         """.utf8
     )
 
-    let catalog = try ChromeLocalStateParser.parse(data: data)
+    let catalog = try ChromiumLocalStateParser.parse(data: data)
 
     #expect(catalog.lastUsedDirectoryName == "Profile 3")
     #expect(catalog.directoryName(forEmail: "work@example.com") == "Profile 3")
@@ -181,10 +248,10 @@ func chromeLocalStateParserExtractsProfilesAndLastUsedDirectory() throws {
 
 @Test
 func resolverFallsBackToLastUsedDirectoryWhenNoEmailProvided() throws {
-    let catalog = ChromeProfileCatalog(
+    let catalog = ChromiumProfileCatalog(
         lastUsedDirectoryName: "Profile 7",
         profiles: [
-            ChromeProfile(
+            ChromiumProfile(
                 directoryName: "Profile 7",
                 displayName: "Default",
                 email: "default@example.com",
@@ -194,17 +261,17 @@ func resolverFallsBackToLastUsedDirectoryWhenNoEmailProvided() throws {
         ]
     )
 
-    let directory = try ProfileDirectoryResolver.resolveDirectory(preferredEmail: nil, catalog: catalog)
+    let directory = try ProfileDirectoryResolver.resolveDirectory(preferredEmail: nil, catalog: catalog, browser: .chrome)
 
     #expect(directory == "Profile 7")
 }
 
 @Test
 func resolverThrowsHelpfulErrorForUnknownEmail() throws {
-    let catalog = ChromeProfileCatalog(
+    let catalog = ChromiumProfileCatalog(
         lastUsedDirectoryName: "Default",
         profiles: [
-            ChromeProfile(
+            ChromiumProfile(
                 directoryName: "Default",
                 displayName: "Personal",
                 email: "personal@example.com",
@@ -215,7 +282,7 @@ func resolverThrowsHelpfulErrorForUnknownEmail() throws {
     )
 
     #expect(throws: ChooseBrowserError.self) {
-        _ = try ProfileDirectoryResolver.resolveDirectory(preferredEmail: "work@example.com", catalog: catalog)
+        _ = try ProfileDirectoryResolver.resolveDirectory(preferredEmail: "work@example.com", catalog: catalog, browser: .chrome)
     }
 }
 
@@ -231,9 +298,10 @@ func configManagerSavesAndReloadsNormalizedConfig() throws {
     }
 
     let config = ChooseBrowserConfig(
+        defaultBrowser: .brave,
         defaultProfileEmail: " personal@example.com ",
         rules: [
-            URLRule(pattern: " https://example.com/* ", profileEmail: " work@example.com ")
+            URLRule(pattern: " https://example.com/* ", profileEmail: " work@example.com ", browser: .brave)
         ]
     )
 
@@ -241,5 +309,30 @@ func configManagerSavesAndReloadsNormalizedConfig() throws {
     let reloaded = try manager.loadOrCreate(defaultProfileEmail: nil)
 
     #expect(reloaded.defaultProfileEmail == "personal@example.com")
-    #expect(reloaded.rules == [URLRule(pattern: "https://example.com/*", profileEmail: "work@example.com")])
+    #expect(reloaded.defaultBrowser == .brave)
+    #expect(reloaded.rules == [URLRule(pattern: "https://example.com/*", profileEmail: "work@example.com", browser: .brave)])
+}
+
+@Test
+func legacyChromeConfigStillDecodes() throws {
+    let data = Data(
+        """
+        {
+          "unmatchedLinkBehaviorMode": "chromeProfile",
+          "defaultProfileEmail": "work@example.com",
+          "rules": [
+            {
+              "pattern": "https://example.com/*",
+              "profileEmail": "work@example.com"
+            }
+          ]
+        }
+        """.utf8
+    )
+
+    let config = try JSONDecoder().decode(ChooseBrowserConfig.self, from: data)
+
+    #expect(config.effectiveUnmatchedLinkBehaviorMode == .browserProfile)
+    #expect(config.effectiveDefaultBrowser == .chrome)
+    #expect(config.rules.first?.browser == .chrome)
 }

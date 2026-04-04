@@ -8,40 +8,147 @@ public enum AppIdentity {
     public static let bundleIdentifier = "app.browserportal.mac"
 }
 
+public enum ManagedBrowser: String, Codable, CaseIterable, Equatable, Sendable {
+    case chrome
+    case brave
+
+    public var displayName: String {
+        switch self {
+        case .chrome:
+            return "Google Chrome"
+        case .brave:
+            return "Brave"
+        }
+    }
+
+    public var shortDisplayName: String {
+        switch self {
+        case .chrome:
+            return "Chrome"
+        case .brave:
+            return "Brave"
+        }
+    }
+
+    var applicationName: String {
+        switch self {
+        case .chrome:
+            return "Google Chrome.app"
+        case .brave:
+            return "Brave Browser.app"
+        }
+    }
+
+    var executableName: String {
+        switch self {
+        case .chrome:
+            return "Google Chrome"
+        case .brave:
+            return "Brave Browser"
+        }
+    }
+
+    var supportPathComponents: [String] {
+        switch self {
+        case .chrome:
+            return ["Google", "Chrome"]
+        case .brave:
+            return ["BraveSoftware", "Brave-Browser"]
+        }
+    }
+}
+
 public struct URLRule: Codable, Equatable, Sendable {
     public let pattern: String
+    public let browser: ManagedBrowser
     public let profileEmail: String
 
-    public init(pattern: String, profileEmail: String) {
+    enum CodingKeys: String, CodingKey {
+        case pattern
+        case browser
+        case profileEmail
+    }
+
+    public init(pattern: String, profileEmail: String, browser: ManagedBrowser = .chrome) {
         self.pattern = pattern
+        self.browser = browser
         self.profileEmail = profileEmail
     }
 
     func normalized() -> URLRule {
         URLRule(
             pattern: pattern.trimmingCharacters(in: .whitespacesAndNewlines),
-            profileEmail: profileEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+            profileEmail: profileEmail.trimmingCharacters(in: .whitespacesAndNewlines),
+            browser: browser
         )
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pattern = try container.decode(String.self, forKey: .pattern)
+        browser = try container.decodeIfPresent(ManagedBrowser.self, forKey: .browser) ?? .chrome
+        profileEmail = try container.decode(String.self, forKey: .profileEmail)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(pattern, forKey: .pattern)
+        try container.encode(browser, forKey: .browser)
+        try container.encode(profileEmail, forKey: .profileEmail)
     }
 }
 
 public enum UnmatchedLinkBehaviorMode: String, Codable, CaseIterable, Equatable, Sendable {
     case lastActiveBrowser
-    case chromeLastUsed
-    case chromeProfile
+    case browserLastUsed
+    case browserProfile
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        switch rawValue {
+        case "lastActiveBrowser":
+            self = .lastActiveBrowser
+        case "chromeLastUsed", "browserLastUsed":
+            self = .browserLastUsed
+        case "chromeProfile", "browserProfile":
+            self = .browserProfile
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown unmatched link behavior mode: \(rawValue)"
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
     public let unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode?
+    public let defaultBrowser: ManagedBrowser?
     public let defaultProfileEmail: String?
     public let rules: [URLRule]
 
+    enum CodingKeys: String, CodingKey {
+        case unmatchedLinkBehaviorMode
+        case defaultBrowser
+        case defaultProfileEmail
+        case rules
+    }
+
     public init(
         unmatchedLinkBehaviorMode: UnmatchedLinkBehaviorMode? = nil,
+        defaultBrowser: ManagedBrowser? = nil,
         defaultProfileEmail: String?,
         rules: [URLRule]
     ) {
         self.unmatchedLinkBehaviorMode = unmatchedLinkBehaviorMode
+        self.defaultBrowser = defaultBrowser
         self.defaultProfileEmail = defaultProfileEmail
         self.rules = rules
     }
@@ -54,6 +161,7 @@ public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
     func normalized() -> ChooseBrowserConfig {
         ChooseBrowserConfig(
             unmatchedLinkBehaviorMode: unmatchedLinkBehaviorMode,
+            defaultBrowser: defaultBrowser,
             defaultProfileEmail: defaultProfileEmail?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNilIfEmpty,
             rules: rules.map { $0.normalized() }
         )
@@ -65,14 +173,34 @@ public struct ChooseBrowserConfig: Codable, Equatable, Sendable {
         }
 
         if defaultProfileEmail?.trimmedNilIfEmpty != nil {
-            return .chromeProfile
+            return .browserProfile
         }
 
         return .lastActiveBrowser
     }
+
+    public var effectiveDefaultBrowser: ManagedBrowser {
+        defaultBrowser ?? .chrome
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        unmatchedLinkBehaviorMode = try container.decodeIfPresent(UnmatchedLinkBehaviorMode.self, forKey: .unmatchedLinkBehaviorMode)
+        defaultBrowser = try container.decodeIfPresent(ManagedBrowser.self, forKey: .defaultBrowser)
+        defaultProfileEmail = try container.decodeIfPresent(String.self, forKey: .defaultProfileEmail)
+        rules = try container.decodeIfPresent([URLRule].self, forKey: .rules) ?? []
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(unmatchedLinkBehaviorMode, forKey: .unmatchedLinkBehaviorMode)
+        try container.encodeIfPresent(defaultBrowser, forKey: .defaultBrowser)
+        try container.encodeIfPresent(defaultProfileEmail, forKey: .defaultProfileEmail)
+        try container.encode(rules, forKey: .rules)
+    }
 }
 
-public struct ChromeProfile: Equatable, Sendable {
+public struct ChromiumProfile: Equatable, Sendable {
     public let directoryName: String
     public let displayName: String?
     public let email: String?
@@ -94,11 +222,11 @@ public struct ChromeProfile: Equatable, Sendable {
     }
 }
 
-public struct ChromeProfileCatalog: Equatable, Sendable {
+public struct ChromiumProfileCatalog: Equatable, Sendable {
     public let lastUsedDirectoryName: String?
-    public let profiles: [ChromeProfile]
+    public let profiles: [ChromiumProfile]
 
-    public init(lastUsedDirectoryName: String?, profiles: [ChromeProfile]) {
+    public init(lastUsedDirectoryName: String?, profiles: [ChromiumProfile]) {
         self.lastUsedDirectoryName = lastUsedDirectoryName
         self.profiles = profiles
     }
@@ -123,17 +251,20 @@ public struct ChromeProfileCatalog: Equatable, Sendable {
 
 public struct BrowserRoutingDecision: Equatable, Sendable {
     public let url: URL
+    public let browser: ManagedBrowser
     public let profileDirectoryName: String
     public let profileEmail: String?
     public let matchedRule: URLRule?
 
     public init(
         url: URL,
+        browser: ManagedBrowser,
         profileDirectoryName: String,
         profileEmail: String?,
         matchedRule: URLRule?
     ) {
         self.url = url
+        self.browser = browser
         self.profileDirectoryName = profileDirectoryName
         self.profileEmail = profileEmail
         self.matchedRule = matchedRule
@@ -141,16 +272,16 @@ public struct BrowserRoutingDecision: Equatable, Sendable {
 }
 
 public enum BrowserRoutingPlan: Equatable, Sendable {
-    case routeInChrome(BrowserRoutingDecision)
+    case routeInManagedBrowser(BrowserRoutingDecision)
     case fallbackToSystem(URL)
 }
 
 public enum ChooseBrowserError: LocalizedError {
     case invalidConfiguration(String)
-    case chromeNotFound
+    case browserNotFound(ManagedBrowser)
     case invalidURL(String)
-    case unknownProfileEmail(String, availableEmails: [String])
-    case cannotLaunchChrome(URL)
+    case unknownProfileEmail(ManagedBrowser, String, availableEmails: [String])
+    case cannotLaunchBrowser(ManagedBrowser, URL)
     case noFallbackBrowser
     case uninstallFailed(String)
 
@@ -158,18 +289,18 @@ public enum ChooseBrowserError: LocalizedError {
         switch self {
         case let .invalidConfiguration(message):
             return "Configuration error: \(message)"
-        case .chromeNotFound:
-            return "Google Chrome.app was not found. Install Chrome in /Applications or ~/Applications."
+        case let .browserNotFound(browser):
+            return "\(browser.applicationName) was not found. Install \(browser.shortDisplayName) in /Applications or ~/Applications."
         case let .invalidURL(value):
             return "\"\(value)\" is not a valid URL."
-        case let .unknownProfileEmail(email, availableEmails):
+        case let .unknownProfileEmail(browser, email, availableEmails):
             if availableEmails.isEmpty {
-                return "No Chrome profile with email \(email) was found, and Chrome did not report any signed-in profile emails."
+                return "No \(browser.shortDisplayName) profile with email \(email) was found, and \(browser.shortDisplayName) did not report any signed-in profile emails."
             }
 
-            return "No Chrome profile with email \(email) was found. Available emails: \(availableEmails.joined(separator: ", "))."
-        case let .cannotLaunchChrome(url):
-            return "\(AppIdentity.displayName) could not launch Chrome for \(url.absoluteString)."
+            return "No \(browser.shortDisplayName) profile with email \(email) was found. Available emails: \(availableEmails.joined(separator: ", "))."
+        case let .cannotLaunchBrowser(browser, url):
+            return "\(AppIdentity.displayName) could not launch \(browser.shortDisplayName) for \(url.absoluteString)."
         case .noFallbackBrowser:
             return "Open another browser once so \(AppIdentity.displayName) can hand unmatched links back to it."
         case let .uninstallFailed(message):
@@ -329,69 +460,72 @@ public final class ConfigManager {
     }
 }
 
-public struct ChromeEnvironment: Sendable {
+public struct ChromiumEnvironment: Sendable {
+    public let browser: ManagedBrowser
     public let appURL: URL
     public let binaryURL: URL
     public let localStateURL: URL
 
-    public init(appURL: URL, binaryURL: URL, localStateURL: URL) {
+    public init(browser: ManagedBrowser, appURL: URL, binaryURL: URL, localStateURL: URL) {
+        self.browser = browser
         self.appURL = appURL
         self.binaryURL = binaryURL
         self.localStateURL = localStateURL
     }
 
-    public static func discover(fileManager: FileManager = .default) throws -> ChromeEnvironment {
+    public static func discover(browser: ManagedBrowser, fileManager: FileManager = .default) throws -> ChromiumEnvironment {
         let candidateAppURLs = [
-            URL(fileURLWithPath: "/Applications/Google Chrome.app"),
+            URL(fileURLWithPath: "/Applications/\(browser.applicationName)"),
             fileManager.homeDirectoryForCurrentUser
                 .appending(path: "Applications", directoryHint: .isDirectory)
-                .appending(path: "Google Chrome.app", directoryHint: .isDirectory),
+                .appending(path: browser.applicationName, directoryHint: .isDirectory),
         ]
 
         guard let appURL = candidateAppURLs.first(where: { fileManager.fileExists(atPath: $0.fileSystemPath) }) else {
-            throw ChooseBrowserError.chromeNotFound
+            throw ChooseBrowserError.browserNotFound(browser)
         }
 
-        return ChromeEnvironment(
+        return ChromiumEnvironment(
+            browser: browser,
             appURL: appURL,
             binaryURL: appURL
                 .appending(path: "Contents", directoryHint: .isDirectory)
                 .appending(path: "MacOS", directoryHint: .isDirectory)
-                .appending(path: "Google Chrome", directoryHint: .notDirectory),
+                .appending(path: browser.executableName, directoryHint: .notDirectory),
             localStateURL: fileManager.homeDirectoryForCurrentUser
                 .appending(path: "Library", directoryHint: .isDirectory)
                 .appending(path: "Application Support", directoryHint: .isDirectory)
-                .appending(path: "Google", directoryHint: .isDirectory)
-                .appending(path: "Chrome", directoryHint: .isDirectory)
+                .appending(path: browser.supportPathComponents[0], directoryHint: .isDirectory)
+                .appending(path: browser.supportPathComponents[1], directoryHint: .isDirectory)
                 .appending(path: "Local State", directoryHint: .notDirectory)
         )
     }
 
-    public func loadProfileCatalog(fileManager: FileManager = .default) throws -> ChromeProfileCatalog {
+    public func loadProfileCatalog(fileManager: FileManager = .default) throws -> ChromiumProfileCatalog {
         guard fileManager.fileExists(atPath: localStateURL.fileSystemPath) else {
-            return ChromeProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
+            return ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
         }
 
         let data = try Data(contentsOf: localStateURL)
-        return try ChromeLocalStateParser.parse(data: data)
+        return try ChromiumLocalStateParser.parse(data: data)
     }
 }
 
-public enum ChromeLocalStateParser {
-    public static func parse(data: Data) throws -> ChromeProfileCatalog {
+public enum ChromiumLocalStateParser {
+    public static func parse(data: Data) throws -> ChromiumProfileCatalog {
         let object = try JSONSerialization.jsonObject(with: data)
 
         guard
             let root = object as? [String: Any],
             let profileSection = root["profile"] as? [String: Any]
         else {
-            throw ChooseBrowserError.invalidConfiguration("Chrome Local State did not contain a profile section.")
+            throw ChooseBrowserError.invalidConfiguration("Chromium Local State did not contain a profile section.")
         }
 
         let lastUsedDirectoryName = profileSection["last_used"] as? String
         let infoCache = profileSection["info_cache"] as? [String: Any] ?? [:]
 
-        let profiles = infoCache.compactMap { directoryName, rawProfile -> ChromeProfile? in
+        let profiles = infoCache.compactMap { directoryName, rawProfile -> ChromiumProfile? in
             guard let profile = rawProfile as? [String: Any] else {
                 return nil
             }
@@ -405,7 +539,7 @@ public enum ChromeLocalStateParser {
                 isManaged = nil
             }
 
-            return ChromeProfile(
+            return ChromiumProfile(
                 directoryName: directoryName,
                 displayName: (profile["name"] as? String)?.trimmedNilIfEmpty,
                 email: (profile["user_name"] as? String)?.trimmedNilIfEmpty,
@@ -415,31 +549,32 @@ public enum ChromeLocalStateParser {
         }
         .sorted { $0.directoryName < $1.directoryName }
 
-        return ChromeProfileCatalog(lastUsedDirectoryName: lastUsedDirectoryName, profiles: profiles)
+        return ChromiumProfileCatalog(lastUsedDirectoryName: lastUsedDirectoryName, profiles: profiles)
     }
 }
 
 public enum ProfileDirectoryResolver {
     public static func resolveDirectory(
         preferredEmail: String?,
-        catalog: ChromeProfileCatalog
+        catalog: ChromiumProfileCatalog,
+        browser: ManagedBrowser
     ) throws -> String {
         if let preferredEmail = preferredEmail?.trimmedNilIfEmpty {
             if let directoryName = catalog.directoryName(forEmail: preferredEmail) {
                 return directoryName
             }
 
-            throw ChooseBrowserError.unknownProfileEmail(preferredEmail, availableEmails: catalog.availableEmails)
+            throw ChooseBrowserError.unknownProfileEmail(browser, preferredEmail, availableEmails: catalog.availableEmails)
         }
 
         return catalog.lastUsedDirectoryName ?? "Default"
     }
 }
 
-public struct ChromeLauncher: Sendable {
-    public let environment: ChromeEnvironment
+public struct ChromiumLauncher: Sendable {
+    public let environment: ChromiumEnvironment
 
-    public init(environment: ChromeEnvironment) {
+    public init(environment: ChromiumEnvironment) {
         self.environment = environment
     }
 
@@ -455,7 +590,7 @@ public struct ChromeLauncher: Sendable {
         do {
             try process.run()
         } catch {
-            throw ChooseBrowserError.cannotLaunchChrome(url)
+            throw ChooseBrowserError.cannotLaunchBrowser(environment.browser, url)
         }
     }
 }
@@ -463,17 +598,17 @@ public struct ChromeLauncher: Sendable {
 public final class BrowserRouter {
     private let fileManager: FileManager
     private let configManager: ConfigManager
-    private let chromeEnvironmentProvider: () throws -> ChromeEnvironment
+    private let environmentProvider: (ManagedBrowser) throws -> ChromiumEnvironment
 
     public init(
         fileManager: FileManager = .default,
         configManager: ConfigManager? = nil,
-        chromeEnvironmentProvider: (() throws -> ChromeEnvironment)? = nil
+        environmentProvider: ((ManagedBrowser) throws -> ChromiumEnvironment)? = nil
     ) {
         self.fileManager = fileManager
         self.configManager = configManager ?? ConfigManager(fileManager: fileManager)
-        self.chromeEnvironmentProvider = chromeEnvironmentProvider ?? {
-            try ChromeEnvironment.discover(fileManager: fileManager)
+        self.environmentProvider = environmentProvider ?? { browser in
+            try ChromiumEnvironment.discover(browser: browser, fileManager: fileManager)
         }
     }
 
@@ -482,7 +617,7 @@ public final class BrowserRouter {
     }
 
     public func loadConfig() throws -> ChooseBrowserConfig {
-        let catalog = try availableProfiles()
+        let catalog = (try? availableProfiles(for: .chrome)) ?? ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
         let defaultEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
         return try configManager.loadOrCreate(defaultProfileEmail: defaultEmail)
     }
@@ -491,14 +626,32 @@ public final class BrowserRouter {
         try configManager.save(config: config)
     }
 
-    public func availableProfiles() throws -> ChromeProfileCatalog {
-        let environment = try chromeEnvironmentProvider()
+    public func availableProfiles(for browser: ManagedBrowser) throws -> ChromiumProfileCatalog {
+        let environment = try environmentProvider(browser)
         return try environment.loadProfileCatalog(fileManager: fileManager)
     }
 
+    public func availableProfilesByBrowser() throws -> [ManagedBrowser: ChromiumProfileCatalog] {
+        var catalogs: [ManagedBrowser: ChromiumProfileCatalog] = [:]
+
+        for browser in ManagedBrowser.allCases {
+            do {
+                catalogs[browser] = try availableProfiles(for: browser)
+            } catch let ChooseBrowserError.browserNotFound(missingBrowser) where missingBrowser == browser {
+                catalogs[browser] = ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
+            }
+        }
+
+        return catalogs
+    }
+
+    public func installedBrowsers() -> [ManagedBrowser] {
+        ManagedBrowser.allCases.filter { browser in
+            (try? environmentProvider(browser)) != nil
+        }
+    }
+
     public func plan(for url: URL) throws -> BrowserRoutingPlan {
-        let environment = try chromeEnvironmentProvider()
-        let catalog = try environment.loadProfileCatalog(fileManager: fileManager)
         let config = try loadConfig()
         let matchedRule = config.matchingRule(for: url)
 
@@ -506,29 +659,37 @@ public final class BrowserRouter {
             switch config.effectiveUnmatchedLinkBehaviorMode {
             case .lastActiveBrowser:
                 return .fallbackToSystem(url)
-            case .chromeLastUsed:
+            case .browserLastUsed:
+                let browser = config.effectiveDefaultBrowser
+                let catalog = try availableProfiles(for: browser)
                 let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
                     preferredEmail: nil,
-                    catalog: catalog
+                    catalog: catalog,
+                    browser: browser
                 )
 
-                return .routeInChrome(
+                return .routeInManagedBrowser(
                     BrowserRoutingDecision(
                         url: url,
+                        browser: browser,
                         profileDirectoryName: profileDirectoryName,
                         profileEmail: nil,
                         matchedRule: nil
                     )
                 )
-            case .chromeProfile:
+            case .browserProfile:
+                let browser = config.effectiveDefaultBrowser
+                let catalog = try availableProfiles(for: browser)
                 let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
                     preferredEmail: config.defaultProfileEmail,
-                    catalog: catalog
+                    catalog: catalog,
+                    browser: browser
                 )
 
-                return .routeInChrome(
+                return .routeInManagedBrowser(
                     BrowserRoutingDecision(
                         url: url,
+                        browser: browser,
                         profileDirectoryName: profileDirectoryName,
                         profileEmail: config.defaultProfileEmail,
                         matchedRule: nil
@@ -537,15 +698,19 @@ public final class BrowserRouter {
             }
         }
 
+        let browser = matchedRule.browser
+        let catalog = try availableProfiles(for: browser)
         let preferredEmail = matchedRule.profileEmail
         let profileDirectoryName = try ProfileDirectoryResolver.resolveDirectory(
             preferredEmail: preferredEmail,
-            catalog: catalog
+            catalog: catalog,
+            browser: browser
         )
 
-        return .routeInChrome(
+        return .routeInManagedBrowser(
             BrowserRoutingDecision(
                 url: url,
+                browser: browser,
                 profileDirectoryName: profileDirectoryName,
                 profileEmail: preferredEmail,
                 matchedRule: matchedRule
@@ -555,15 +720,14 @@ public final class BrowserRouter {
 
     @discardableResult
     public func open(url: URL) throws -> BrowserRoutingDecision {
-        let environment = try chromeEnvironmentProvider()
-
         switch try plan(for: url) {
-        case let .routeInChrome(decision):
-            let launcher = ChromeLauncher(environment: environment)
+        case let .routeInManagedBrowser(decision):
+            let environment = try environmentProvider(decision.browser)
+            let launcher = ChromiumLauncher(environment: environment)
             try launcher.open(url: url, inProfileDirectory: decision.profileDirectoryName)
             return decision
         case .fallbackToSystem:
-            throw ChooseBrowserError.invalidConfiguration("A system fallback plan cannot be opened directly as a Chrome routing decision.")
+            throw ChooseBrowserError.invalidConfiguration("A system fallback plan cannot be opened directly as a managed browser routing decision.")
         }
     }
 }
@@ -597,16 +761,28 @@ public struct CommandLineInterface {
             return 0
         case "--list-profiles":
             do {
-                let catalog = try router.availableProfiles()
-                if catalog.profiles.isEmpty {
-                    writeLine("No Chrome profiles with metadata were found.", to: standardOutput)
+                let catalogs = try router.availableProfilesByBrowser()
+                let installedBrowsers = router.installedBrowsers()
+
+                if installedBrowsers.isEmpty {
+                    writeLine("No supported browsers were found.", to: standardOutput)
                     return 0
                 }
 
-                for profile in catalog.profiles {
-                    let email = profile.email ?? "(no signed-in email)"
-                    let marker = profile.directoryName == catalog.lastUsedDirectoryName ? " [last used]" : ""
-                    writeLine("\(profile.directoryName)\t\(email)\t\(profile.displayName ?? "(unnamed)")\(marker)", to: standardOutput)
+                for browser in installedBrowsers {
+                    let catalog = catalogs[browser] ?? ChromiumProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
+                    writeLine("[\(browser.shortDisplayName)]", to: standardOutput)
+
+                    if catalog.profiles.isEmpty {
+                        writeLine("  No signed-in profiles found.", to: standardOutput)
+                        continue
+                    }
+
+                    for profile in catalog.profiles {
+                        let email = profile.email ?? "(no signed-in email)"
+                        let marker = profile.directoryName == catalog.lastUsedDirectoryName ? " [last used]" : ""
+                        writeLine("  \(profile.directoryName)\t\(email)\t\(profile.displayName ?? "(unnamed)")\(marker)", to: standardOutput)
+                    }
                 }
                 return 0
             } catch {
