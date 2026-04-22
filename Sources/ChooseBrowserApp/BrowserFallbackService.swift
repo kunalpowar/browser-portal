@@ -4,6 +4,29 @@ import Foundation
 
 @MainActor
 final class BrowserFallbackService {
+    private static let knownBrowserBundleIdentifiers: Set<String> = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.brave.Browser",
+        "com.brave.Browser.beta",
+        "com.brave.Browser.nightly",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "org.mozilla.nightly",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta",
+        "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "company.thebrowser.Browser",
+        "com.operasoftware.Opera",
+        "com.operasoftware.OperaGX",
+        "com.vivaldi.Vivaldi",
+        "org.torproject.torbrowser",
+        "com.kagi.kagimacOS",
+        "app.zen-browser.zen",
+    ]
+
     private let logStore: AppLogStore
     private let workspace: NSWorkspace
     private let userDefaults: UserDefaults
@@ -95,6 +118,9 @@ final class BrowserFallbackService {
                 logStore.append("Using remembered fallback browser: \(rememberedURL.lastPathComponent)")
                 return rememberedURL
             }
+
+            userDefaults.removeObject(forKey: rememberedBrowserURLKey)
+            logStore.append("Discarded remembered fallback browser because it is not a supported browser: \(rememberedURL.lastPathComponent)")
         }
 
         if
@@ -137,32 +163,59 @@ final class BrowserFallbackService {
             return false
         }
 
-        if let bundleIdentifier = bundle.bundleIdentifier, bundleIdentifier == appBundleIdentifier {
-            return false
-        }
+        if let bundleIdentifier = bundle.bundleIdentifier {
+            if bundleIdentifier == appBundleIdentifier {
+                return false
+            }
 
-        let infoDictionary = bundle.infoDictionary ?? [:]
-
-        if let userActivityTypes = infoDictionary["NSUserActivityTypes"] as? [String],
-           userActivityTypes.contains("NSUserActivityTypeBrowsingWeb") {
-            return true
-        }
-
-        if let urlTypes = infoDictionary["CFBundleURLTypes"] as? [[String: Any]] {
-            for urlType in urlTypes {
-                let schemes = urlType["CFBundleURLSchemes"] as? [String] ?? []
-                if schemes.contains("http") || schemes.contains("https") {
-                    return true
-                }
+            if Self.knownBrowserBundleIdentifiers.contains(bundleIdentifier) {
+                return true
             }
         }
 
-        if let documentTypes = infoDictionary["CFBundleDocumentTypes"] as? [[String: Any]] {
-            for documentType in documentTypes {
-                let contentTypes = documentType["LSItemContentTypes"] as? [String] ?? []
-                if contentTypes.contains("public.html") || contentTypes.contains("public.xhtml") {
-                    return true
-                }
+        let infoDictionary = bundle.infoDictionary ?? [:]
+        let hasBrowsableWebSchemes = hasPrimaryWebURLSchemes(in: infoDictionary)
+        let hasBrowsingUserActivity = (infoDictionary["NSUserActivityTypes"] as? [String])?.contains("NSUserActivityTypeBrowsingWeb") == true
+        let hasWebBrowserDocumentClaim = hasWebBrowserDocumentClaim(in: infoDictionary)
+
+        if hasBrowsableWebSchemes && (hasBrowsingUserActivity || hasWebBrowserDocumentClaim) {
+            return true
+        }
+
+        return false
+    }
+
+    private func hasPrimaryWebURLSchemes(in infoDictionary: [String: Any]) -> Bool {
+        guard let urlTypes = infoDictionary["CFBundleURLTypes"] as? [[String: Any]] else {
+            return false
+        }
+
+        for urlType in urlTypes {
+            let schemes = Set(urlType["CFBundleURLSchemes"] as? [String] ?? [])
+            guard schemes.contains("http") || schemes.contains("https") else {
+                continue
+            }
+
+            let handlerRank = (urlType["LSHandlerRank"] as? String)?.lowercased()
+            if handlerRank == "alternate" || handlerRank == "none" {
+                continue
+            }
+
+            return true
+        }
+
+        return false
+    }
+
+    private func hasWebBrowserDocumentClaim(in infoDictionary: [String: Any]) -> Bool {
+        guard let documentTypes = infoDictionary["CFBundleDocumentTypes"] as? [[String: Any]] else {
+            return false
+        }
+
+        for documentType in documentTypes {
+            let contentTypes = Set(documentType["LSItemContentTypes"] as? [String] ?? [])
+            if contentTypes.contains("com.apple.default-app.web-browser") {
+                return true
             }
         }
 
