@@ -483,8 +483,7 @@ public final class BrowserRouter {
 
     public func loadConfig() throws -> ChooseBrowserConfig {
         let catalog = try availableProfiles()
-        let defaultEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
-        return try configManager.loadOrCreate(defaultProfileEmail: defaultEmail)
+        return try loadConfig(using: catalog)
     }
 
     public func saveConfig(_ config: ChooseBrowserConfig) throws {
@@ -499,7 +498,26 @@ public final class BrowserRouter {
     public func plan(for url: URL) throws -> BrowserRoutingPlan {
         let environment = try chromeEnvironmentProvider()
         let catalog = try environment.loadProfileCatalog(fileManager: fileManager)
-        let config = try loadConfig()
+        let config = try loadConfig(using: catalog)
+        return try routingPlan(for: url, config: config, catalog: catalog)
+    }
+
+    public func open(_ decision: BrowserRoutingDecision) throws {
+        let environment = try chromeEnvironmentProvider()
+        let launcher = ChromeLauncher(environment: environment)
+        try launcher.open(url: decision.url, inProfileDirectory: decision.profileDirectoryName)
+    }
+
+    private func loadConfig(using catalog: ChromeProfileCatalog) throws -> ChooseBrowserConfig {
+        let defaultEmail = catalog.email(forDirectoryName: catalog.lastUsedDirectoryName)
+        return try configManager.loadOrCreate(defaultProfileEmail: defaultEmail)
+    }
+
+    private func routingPlan(
+        for url: URL,
+        config: ChooseBrowserConfig,
+        catalog: ChromeProfileCatalog
+    ) throws -> BrowserRoutingPlan {
         let matchedRule = config.matchingRule(for: url)
 
         guard let matchedRule else {
@@ -555,12 +573,9 @@ public final class BrowserRouter {
 
     @discardableResult
     public func open(url: URL) throws -> BrowserRoutingDecision {
-        let environment = try chromeEnvironmentProvider()
-
         switch try plan(for: url) {
         case let .routeInChrome(decision):
-            let launcher = ChromeLauncher(environment: environment)
-            try launcher.open(url: url, inProfileDirectory: decision.profileDirectoryName)
+            try open(decision)
             return decision
         case .fallbackToSystem:
             throw ChooseBrowserError.invalidConfiguration("A system fallback plan cannot be opened directly as a Chrome routing decision.")

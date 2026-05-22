@@ -33,6 +33,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private var pendingConfigurationWindowWorkItem: DispatchWorkItem?
     private var configurationWindowController: ConfigurationWindowController?
     private var statusItem: NSStatusItem?
+    private var hasHandledExternalOpen = false
 
     override init() {
         super.init()
@@ -65,16 +66,12 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.showConfigurationWindow()
-        }
-        pendingConfigurationWindowWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
+        scheduleConfigurationWindowForManualLaunch()
     }
 
     @objc
     private func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
-        pendingConfigurationWindowWorkItem?.cancel()
+        prepareForExternalOpen()
 
         guard
             let rawURL = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
@@ -92,11 +89,48 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         route(
             urls: [url]
         )
-        ensureBackgroundPresence()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        prepareForExternalOpen()
+
+        let fileURLs = filenames.map { URL(fileURLWithPath: $0) }
+        logStore.append("Received file open event: \(fileURLs.map(\.absoluteString).joined(separator: ", "))")
+        route(urls: fileURLs)
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        prepareForExternalOpen()
+
+        logStore.append("Received URL/file open event: \(urls.map(\.absoluteString).joined(separator: ", "))")
+        route(urls: urls)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showConfigurationWindow()
+        return false
+    }
+
+    private func scheduleConfigurationWindowForManualLaunch() {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.hasHandledExternalOpen else {
+                return
+            }
+
+            self.showConfigurationWindow()
+        }
+        pendingConfigurationWindowWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25, execute: workItem)
+    }
+
+    private func prepareForExternalOpen() {
+        hasHandledExternalOpen = true
+        pendingConfigurationWindowWorkItem?.cancel()
     }
 
     private func installStatusItem() {
@@ -143,6 +177,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
 
     private func route(urls: [URL]) {
         for url in urls {
+            let startTime = Date()
             do {
                 switch try router.plan(for: url) {
                 case let .routeInChrome(decision):
@@ -151,13 +186,17 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
                     } else {
                         logStore.append("Routing unmatched URL to configured Chrome destination \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
                     }
-                    try router.open(url: decision.url)
+                    try router.open(decision)
                 case let .fallbackToSystem(fallbackURL):
                     logStore.append("Falling back to system browser for unmatched URL: \(fallbackURL.absoluteString)")
                     try browserFallbackService.open(url: fallbackURL)
                 }
+                let elapsedMilliseconds = Int(Date().timeIntervalSince(startTime) * 1_000)
+                logStore.append("Finished routing in \(elapsedMilliseconds)ms: \(url.absoluteString)")
             } catch {
+                let elapsedMilliseconds = Int(Date().timeIntervalSince(startTime) * 1_000)
                 logStore.append("Routing failed for \(url.absoluteString): \(error.localizedDescription)")
+                logStore.append("Failed routing after \(elapsedMilliseconds)ms: \(url.absoluteString)")
                 present(error: error)
                 break
             }
