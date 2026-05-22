@@ -61,6 +61,7 @@ final class ConfigurationViewModel: ObservableObject {
     @Published var logPath = ""
     @Published var statusMessage: String?
     @Published var errorMessage: String?
+    @Published var pendingRuleCleanup: PendingRuleCleanup?
 
     private let router: BrowserRouter
     private let logStore: AppLogStore
@@ -136,15 +137,76 @@ final class ConfigurationViewModel: ObservableObject {
     func addDraftRule() {
         do {
             let committedRule = try buildDraftRule(index: rules.count)
-            rules.append(EditableRule(rule: committedRule))
-            draftPattern = ""
-            if draftProfileEmail.trimmedNilIfEmpty == nil {
-                draftProfileEmail = defaultProfileEmail ?? profileOptions.first?.email ?? ""
+            let redundantRules = redundantRules(afterAdding: committedRule)
+
+            if !redundantRules.isEmpty {
+                pendingRuleCleanup = PendingRuleCleanup(newRule: committedRule, redundantRules: redundantRules)
+                return
             }
-            try persistCommittedState(status: "Rule added.")
+
+            try commitDraftRule(committedRule, removingRuleIDs: [])
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
+        }
+    }
+
+    func confirmPendingRuleCleanup() {
+        guard let pendingRuleCleanup else {
+            return
+        }
+
+        do {
+            try commitDraftRule(
+                pendingRuleCleanup.newRule,
+                removingRuleIDs: Set(pendingRuleCleanup.redundantRules.map(\.id))
+            )
+            self.pendingRuleCleanup = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = nil
+        }
+    }
+
+    func cancelPendingRuleCleanup() {
+        guard let pendingRuleCleanup else {
+            return
+        }
+
+        do {
+            try commitDraftRule(pendingRuleCleanup.newRule, removingRuleIDs: [])
+            self.pendingRuleCleanup = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            statusMessage = nil
+        }
+    }
+
+    func dismissPendingRuleCleanup() {
+        pendingRuleCleanup = nil
+    }
+
+    private func commitDraftRule(_ committedRule: URLRule, removingRuleIDs ruleIDsToRemove: Set<UUID>) throws {
+        if !ruleIDsToRemove.isEmpty {
+            rules.removeAll { ruleIDsToRemove.contains($0.id) }
+        }
+
+        rules.insert(EditableRule(rule: committedRule), at: 0)
+        draftPattern = ""
+        if draftProfileEmail.trimmedNilIfEmpty == nil {
+            draftProfileEmail = defaultProfileEmail ?? profileOptions.first?.email ?? ""
+        }
+
+        let removedCount = ruleIDsToRemove.count
+        let status = removedCount == 0
+            ? "Rule added."
+            : "Rule added and \(removedCount) now-redundant rule" + (removedCount == 1 ? " removed." : "s removed.")
+        try persistCommittedState(status: status)
+    }
+
+    private func redundantRules(afterAdding rule: URLRule) -> [EditableRule] {
+        rules.filter { existingRule in
+            RuleMatcher.makesRuleRedundant(rule, existingRule: existingRule.urlRule)
         }
     }
 
@@ -303,6 +365,18 @@ struct ConfigurationView: View {
             .padding(18)
         }
         .frame(minWidth: 820, minHeight: 560)
+        .alert(item: $viewModel.pendingRuleCleanup) { cleanup in
+            Alert(
+                title: Text("Remove Covered Rules?"),
+                message: Text(cleanup.message),
+                primaryButton: .destructive(Text(cleanup.removeButtonTitle)) {
+                    viewModel.confirmPendingRuleCleanup()
+                },
+                secondaryButton: .cancel(Text("Keep All")) {
+                    viewModel.cancelPendingRuleCleanup()
+                }
+            )
+        }
     }
 
     private var routingTab: some View {
@@ -960,6 +1034,37 @@ struct EditableRule: Identifiable, Equatable {
 
     init(rule: URLRule) {
         self.init(pattern: rule.pattern, profileEmail: rule.profileEmail)
+    }
+
+    var urlRule: URLRule {
+        URLRule(pattern: pattern, profileEmail: profileEmail)
+    }
+}
+
+struct PendingRuleCleanup: Identifiable {
+    let id = UUID()
+    let newRule: URLRule
+    let redundantRules: [EditableRule]
+
+    var removeButtonTitle: String {
+        redundantRules.count == 1 ? "Remove 1 Rule" : "Remove \(redundantRules.count) Rules"
+    }
+
+    var message: String {
+        let listedRules = redundantRules
+            .prefix(5)
+            .map { "- \($0.pattern)" }
+            .joined(separator: "\n")
+        let remainingCount = redundantRules.count - min(redundantRules.count, 5)
+        let suffix = remainingCount > 0 ? "\n...and \(remainingCount) more" : ""
+
+        return """
+        The new rule covers existing rule\(redundantRules.count == 1 ? "" : "s") for the same profile:
+
+        \(listedRules)\(suffix)
+
+        Remove \(redundantRules.count == 1 ? "it" : "them") after adding the new rule?
+        """
     }
 }
 

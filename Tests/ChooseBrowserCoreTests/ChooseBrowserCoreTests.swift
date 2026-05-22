@@ -17,6 +17,26 @@ func ruleMatcherTreatsPlainUrlsAsPrefixes() {
 }
 
 @Test
+func ruleMatcherDetectsRedundantSameProfilePrefixRules() {
+    let broaderRule = URLRule(pattern: "https://gitlab.com/eslfaceitgroup", profileEmail: "work@example.com")
+    let narrowerRule = URLRule(pattern: "https://gitlab.com/eslfaceitgroup/project", profileEmail: "work@example.com")
+    let differentProfileRule = URLRule(pattern: "https://gitlab.com/eslfaceitgroup/project", profileEmail: "personal@example.com")
+    let unrelatedRule = URLRule(pattern: "https://github.com/eslfaceitgroup/project", profileEmail: "work@example.com")
+
+    #expect(RuleMatcher.makesRuleRedundant(broaderRule, existingRule: narrowerRule))
+    #expect(!RuleMatcher.makesRuleRedundant(broaderRule, existingRule: differentProfileRule))
+    #expect(!RuleMatcher.makesRuleRedundant(broaderRule, existingRule: unrelatedRule))
+}
+
+@Test
+func ruleMatcherDetectsRedundantWildcardPrefixRules() {
+    let broaderRule = URLRule(pattern: "https://gitlab.com/eslfaceitgroup/*", profileEmail: "work@example.com")
+    let narrowerRule = URLRule(pattern: "https://gitlab.com/eslfaceitgroup/project/*", profileEmail: "work@example.com")
+
+    #expect(RuleMatcher.makesRuleRedundant(broaderRule, existingRule: narrowerRule))
+}
+
+@Test
 func configReturnsFirstMatchingRule() throws {
     let config = ChooseBrowserConfig(
         defaultProfileEmail: "personal@example.com",
