@@ -192,6 +192,36 @@ public enum RuleMatcher {
 
         return value.hasPrefix(trimmedPattern)
     }
+
+    public static func makesRuleRedundant(_ candidateRule: URLRule, existingRule: URLRule) -> Bool {
+        guard candidateRule.profileEmail.normalizedEmail == existingRule.profileEmail.normalizedEmail else {
+            return false
+        }
+
+        guard
+            let candidatePrefix = deterministicPrefix(from: candidateRule.pattern),
+            let existingPrefix = deterministicPrefix(from: existingRule.pattern)
+        else {
+            return false
+        }
+
+        return existingPrefix.hasPrefix(candidatePrefix)
+    }
+
+    private static func deterministicPrefix(from pattern: String) -> String? {
+        let trimmedPattern = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedPattern.isEmpty else {
+            return nil
+        }
+
+        if let wildcardIndex = trimmedPattern.firstIndex(where: { $0 == "*" || $0 == "?" }) {
+            let prefix = String(trimmedPattern[..<wildcardIndex])
+            return prefix.isEmpty ? nil : prefix
+        }
+
+        return trimmedPattern
+    }
 }
 
 public enum WildcardMatcher {
