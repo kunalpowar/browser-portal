@@ -34,6 +34,7 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
     private var configurationWindowController: ConfigurationWindowController?
     private var statusItem: NSStatusItem?
     private var hasHandledExternalOpen = false
+    private var routingTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -48,6 +49,13 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logStore.append("Application launched.")
+        let launchURLs = CommandLine.arguments.dropFirst().compactMap(URL.init(string:))
+        if !launchURLs.isEmpty {
+            logStore.append("Received launch URLs: \(launchURLs.map(\.absoluteString).joined(separator: ", ")).")
+            route(urls: launchURLs, exitWhenFinished: true)
+            return
+        }
+
         let launchAtLoginState = launchAtLoginService.ensureConfiguredOnFirstRun()
         logStore.append("Launch at login state: \(launchAtLoginState.description)")
         browserFallbackService.startTracking()
@@ -55,14 +63,6 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
 
         logStore.append("AuthenticationServices launch flag: \(authenticationSessionService.wasLaunchedByAuthenticationServices).")
         if authenticationSessionService.wasLaunchedByAuthenticationServices {
-            return
-        }
-
-        let launchURLs = CommandLine.arguments.dropFirst().compactMap(URL.init(string:))
-        if !launchURLs.isEmpty {
-            logStore.append("Received launch URLs: \(launchURLs.map(\.absoluteString).joined(separator: ", ")).")
-            route(urls: launchURLs)
-            ensureBackgroundPresence()
             return
         }
 
@@ -175,30 +175,59 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
         configurationWindowController?.showAndActivate()
     }
 
-    private func route(urls: [URL]) {
-        for url in urls {
-            let startTime = Date()
-            do {
-                switch try router.plan(for: url) {
-                case let .routeInChrome(decision):
-                    if decision.matchedRule != nil {
-                        logStore.append("Routing matched URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
-                    } else {
-                        logStore.append("Routing unmatched URL to configured Chrome destination \(decision.profileEmail ?? decision.profileDirectoryName): \(decision.url.absoluteString)")
+    private func route(urls: [URL], exitWhenFinished: Bool = false) {
+        let previousTask = routingTask
+        routingTask = Task(priority: .userInitiated) {
+            await previousTask?.value
+            var errors: [any Error] = []
+            for url in urls {
+                let started = ContinuousClock.now
+                do {
+                    let plan = try await Task.detached(priority: .userInitiated) {
+                        try BrowserRouter().plan(for: url)
+                    }.value
+                    switch plan {
+                    case let .routeInChrome(decision):
+                        logStore.append("Dispatching URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(url.absoluteString)")
+                        let logStore = self.logStore
+                        let pid = try await Task.detached(priority: .userInitiated) { [self] in
+                            try BrowserRouter().open(decision) { [weak self] status in
+                                logStore.append("Chrome command process exited with status \(status) for \(url.absoluteString). This does not confirm tab display.")
+                                if status != 0, let self {
+                                    Task { @MainActor in
+                                        await self.routingTask?.value
+                                        self.present(error: ChooseBrowserError.chromeExited(status))
+                                    }
+                                }
+                            }
+                        }.value
+                        logStore.append("Chrome command process started with pid \(pid).")
+                    case let .openInChromeLastUsedProfile(chromeURL):
+                        let applicationURL = try await Task.detached(priority: .userInitiated) {
+                            try ChromeEnvironment.discover().appURL
+                        }.value
+                        try await browserFallbackService.open(url: chromeURL, in: applicationURL)
+                        logStore.append("macOS accepted the Chrome open request for its last used profile.")
+                    case let .fallbackToSystem(fallbackURL):
+                        try await browserFallbackService.open(url: fallbackURL)
+                        logStore.append("macOS accepted the fallback browser open request.")
                     }
-                    try router.open(decision)
-                case let .fallbackToSystem(fallbackURL):
-                    logStore.append("Falling back to system browser for unmatched URL: \(fallbackURL.absoluteString)")
-                    try browserFallbackService.open(url: fallbackURL)
+                    logStore.append("Browser dispatch took \(started.duration(to: .now)): \(url.absoluteString). Tab display time is not measured.")
+                } catch {
+                    logStore.append("Browser dispatch failed after \(started.duration(to: .now)): \(error.localizedDescription)")
+                    errors.append(error)
                 }
-                let elapsedMilliseconds = Int(Date().timeIntervalSince(startTime) * 1_000)
-                logStore.append("Finished routing in \(elapsedMilliseconds)ms: \(url.absoluteString)")
-            } catch {
-                let elapsedMilliseconds = Int(Date().timeIntervalSince(startTime) * 1_000)
-                logStore.append("Routing failed for \(url.absoluteString): \(error.localizedDescription)")
-                logStore.append("Failed routing after \(elapsedMilliseconds)ms: \(url.absoluteString)")
+            }
+            if exitWhenFinished {
+                for error in errors {
+                    FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+                }
+                await logStore.flush()
+                Foundation.exit(errors.isEmpty ? 0 : 1)
+            }
+            // Finish the whole batch before showing any errors.
+            for error in errors {
                 present(error: error)
-                break
             }
         }
     }

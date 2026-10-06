@@ -97,7 +97,7 @@ final class ConfigurationViewModel: ObservableObject {
         do {
             isHydrating = true
 
-            let catalog = try router.availableProfiles()
+            let catalog = (try? router.availableProfiles()) ?? ChromeProfileCatalog(lastUsedDirectoryName: nil, profiles: [])
             let config = try router.loadConfig()
             let knownEmails = catalog.availableEmails
 
@@ -124,7 +124,6 @@ final class ConfigurationViewModel: ObservableObject {
                 statusMessage = "Loaded \(rules.count) rule" + (rules.count == 1 ? "." : "s.")
             }
 
-            loadLogs()
             errorMessage = nil
             isHydrating = false
         } catch {
@@ -261,7 +260,9 @@ final class ConfigurationViewModel: ObservableObject {
     }
 
     func loadLogs() {
-        logEntries = logStore.loadEntries()
+        Task {
+            logEntries = await logStore.loadEntries()
+        }
     }
 
     func revealLogsInFinder() {

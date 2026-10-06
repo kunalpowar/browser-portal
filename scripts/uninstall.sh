@@ -14,11 +14,6 @@ SAVED_STATE_PATH="${SAVED_STATE_PATH:-$HOME/Library/Saved Application State/app.
 CACHES_PATH="${CACHES_PATH:-$HOME/Library/Caches/app.browserportal.mac}"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
-if [[ -x "$LSREGISTER" ]]; then
-  "$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
-  "$LSREGISTER" -u "$LEGACY_APP_PATH" >/dev/null 2>&1 || true
-fi
-
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   printf 'Would remove:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
     "$APP_PATH" \
@@ -30,6 +25,11 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
     "$SAVED_STATE_PATH" \
     "$CACHES_PATH"
   exit 0
+fi
+
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
+  "$LSREGISTER" -u "$LEGACY_APP_PATH" >/dev/null 2>&1 || true
 fi
 
 rm -rf \

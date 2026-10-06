@@ -64,18 +64,24 @@ final class BrowserFallbackService {
         )
     }
 
-    func open(url: URL) throws {
+    func open(url: URL) async throws {
         guard let applicationURL = preferredBrowserApplicationURL() else {
             logStore.append("No fallback browser available for unmatched URL: \(url.absoluteString)")
             throw ChooseBrowserError.noFallbackBrowser
         }
 
-        logStore.append("Opening unmatched URL in fallback browser \(applicationURL.lastPathComponent): \(url.absoluteString)")
+        try await open(url: url, in: applicationURL)
+    }
+
+    func open(url: URL, in applicationURL: URL) async throws {
+        logStore.append("Opening URL in browser \(applicationURL.lastPathComponent): \(url.absoluteString)")
         let configuration = NSWorkspace.OpenConfiguration()
-        workspace.open([url], withApplicationAt: applicationURL, configuration: configuration) { _, error in
-            if let error {
-                Task { @MainActor in
-                    AppLogStore.shared.append("Fallback browser launch failed: \(error.localizedDescription)")
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            workspace.open([url], withApplicationAt: applicationURL, configuration: configuration) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
                 }
             }
         }

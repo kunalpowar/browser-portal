@@ -54,3 +54,9 @@ That installs the app locally and avoids the Homebrew path entirely.
 - macOS only
 - No support for other browsers yet
 - Unsigned builds, so first-launch friction is expected
+
+## Link Handling and Logs
+
+Chrome's last-used-profile mode uses the native macOS open request. Rules for a specific profile pass the profile argument to Chrome on a background thread.
+
+The event log records dispatch time, not the time when a tab appears or a page loads. Log writes run in the background. The log is limited to 1 MiB, and the Logs tab shows up to 1,000 recent entries. URL paths, credentials, queries, and fragments are removed from log messages. Authentication sessions are logged by request ID.

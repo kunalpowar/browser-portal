@@ -263,3 +263,79 @@ func configManagerSavesAndReloadsNormalizedConfig() throws {
     #expect(reloaded.defaultProfileEmail == "personal@example.com")
     #expect(reloaded.rules == [URLRule(pattern: "https://example.com/*", profileEmail: "work@example.com")])
 }
+
+@Test
+func fallbackDoesNotDiscoverChromeOrReadItsState() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let manager = ConfigManager(configurationFileURL: directory.appendingPathComponent("config.json"))
+    try manager.save(config: ChooseBrowserConfig(unmatchedLinkBehaviorMode: .lastActiveBrowser, defaultProfileEmail: nil, rules: []))
+    let router = BrowserRouter(configManager: manager, chromeEnvironmentProvider: {
+        throw ChooseBrowserError.chromeNotFound
+    })
+    let url = URL(string: "https://example.com")!
+    #expect(try router.plan(for: url) == .fallbackToSystem(url))
+    #expect(try router.loadConfig().effectiveUnmatchedLinkBehaviorMode == .lastActiveBrowser)
+}
+
+@Test
+func missingSpecificProfileCannotBeSavedOrSilentlyRouted() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("config.json")
+    let manager = ConfigManager(configurationFileURL: file)
+    let config = ChooseBrowserConfig(unmatchedLinkBehaviorMode: .chromeProfile, defaultProfileEmail: nil, rules: [])
+    #expect(throws: ChooseBrowserError.self) { try manager.save(config: config) }
+    // Also reject an invalid configuration written outside the settings UI.
+    try JSONEncoder().encode(config).write(to: file)
+    let environment = makeTemporaryChromeEnvironment(in: directory)
+    let router = BrowserRouter(configManager: manager, chromeEnvironmentProvider: { environment })
+    #expect(throws: ChooseBrowserError.self) { try router.plan(for: URL(string: "https://example.com")!) }
+}
+
+@Test
+func urlArgumentsEnterTheAppEventLoopForFallbackRouting() {
+    let sink = FileHandle.nullDevice
+    let cli = CommandLineInterface(standardOutput: sink, standardError: sink)
+    #expect(cli.run(arguments: ["https://example.com", "file:///tmp/example.html"]) == nil)
+    #expect(cli.run(arguments: ["invalid-url"]) == 1)
+}
+
+@Test
+func chromeLauncherReportsExitStatusAndPreservesProfileArguments() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let script = directory.appendingPathComponent("fake-chrome")
+    let arguments = directory.appendingPathComponent("arguments.txt")
+    try Data("#!/bin/sh\nprintf '%s\\n' \"$@\" > '\(arguments.path)'\nexit 7\n".utf8).write(to: script)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+    let environment = ChromeEnvironment(appURL: directory, binaryURL: script, localStateURL: directory.appendingPathComponent("Local State"))
+    let launcher = ChromeLauncher(environment: environment)
+    let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+        do {
+            try launcher.open(url: URL(string: "https://example.com/path")!, inProfileDirectory: "Profile 4") { status in
+                continuation.resume(returning: status)
+            }
+        } catch {
+            continuation.resume(throwing: error)
+        }
+    }
+    #expect(status == 7)
+    let actualArguments = try String(contentsOf: arguments, encoding: .utf8).split(separator: "\n").map(String.init)
+    #expect(actualArguments == ["--profile-directory=Profile 4", "--new-tab", "https://example.com/path"])
+}
+
+@Test
+func chromeLastUsedUsesNativeOpenWithoutReadingProfileState() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let manager = ConfigManager(configurationFileURL: directory.appendingPathComponent("config.json"))
+    try manager.save(config: ChooseBrowserConfig(unmatchedLinkBehaviorMode: .chromeLastUsed, defaultProfileEmail: nil, rules: []))
+    let router = BrowserRouter(configManager: manager, chromeEnvironmentProvider: {
+        throw ChooseBrowserError.invalidConfiguration("Profile state must not be read for native open.")
+    })
+    let url = URL(string: "https://example.com")!
+    #expect(try router.plan(for: url) == .openInChromeLastUsedProfile(url))
+}

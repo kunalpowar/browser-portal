@@ -26,6 +26,10 @@ let package = Package(
             dependencies: ["ChooseBrowserCore"]
         ),
         .testTarget(
+            name: "ChooseBrowserAppTests",
+            dependencies: ["ChooseBrowserApp"]
+        ),
+        .testTarget(
             name: "ChooseBrowserCoreTests",
             dependencies: ["ChooseBrowserCore"]
         ),

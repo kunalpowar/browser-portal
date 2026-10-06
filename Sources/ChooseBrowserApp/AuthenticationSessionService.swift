@@ -31,7 +31,7 @@ final class AuthenticationSessionService: NSObject {
 
         activeRequest = request
         request.delegate = self
-        logStore.append("Auth session started for \(request.url.absoluteString) [uuid=\(request.uuid.uuidString), ephemeral=\(request.shouldUseEphemeralSession)].")
+        logStore.append("Auth session started [uuid=\(request.uuid.uuidString), ephemeral=\(request.shouldUseEphemeralSession)].")
 
         onRequestUserInterface()
 
@@ -87,7 +87,7 @@ final class AuthenticationSessionService: NSObject {
         }
 
         self.activeRequest = nil
-        logStore.append("Auth session completed with callback URL: \(callbackURL.absoluteString)")
+        logStore.append("Auth session completed for request \(activeRequest.uuid.uuidString).")
         activeRequest.complete(withCallbackURL: callbackURL)
         cleanupWindow()
     }
@@ -98,7 +98,7 @@ final class AuthenticationSessionService: NSObject {
         }
 
         self.activeRequest = nil
-        logStore.append("Auth session cancelled for \(activeRequest.url.absoluteString).")
+        logStore.append("Auth session cancelled for \(activeRequest.uuid.uuidString).")
         activeRequest.cancelWithError(Self.canceledLoginError)
         cleanupWindow()
     }
@@ -155,7 +155,7 @@ extension AuthenticationSessionService: ASWebAuthenticationSessionWebBrowserSess
         MainActor.assumeIsolated {
             let pointer = UnsafeMutableRawPointer(bitPattern: retainedRequest)!
             let request = Unmanaged<ASWebAuthenticationSessionRequest>.fromOpaque(pointer).takeRetainedValue()
-            self.logStore.append("AuthenticationServices called begin() for \(request.url.absoluteString).")
+            self.logStore.append("AuthenticationServices called begin() for \(request.uuid.uuidString).")
             self.start(request: request)
         }
     }
@@ -165,7 +165,7 @@ extension AuthenticationSessionService: ASWebAuthenticationSessionWebBrowserSess
         MainActor.assumeIsolated {
             let pointer = UnsafeMutableRawPointer(bitPattern: retainedRequest)!
             let request = Unmanaged<ASWebAuthenticationSessionRequest>.fromOpaque(pointer).takeRetainedValue()
-            self.logStore.append("AuthenticationServices called cancel() for \(request.url.absoluteString).")
+            self.logStore.append("AuthenticationServices called cancel() for \(request.uuid.uuidString).")
             self.cancelMatchingRequestIfNeeded(request)
         }
     }
@@ -217,7 +217,7 @@ extension AuthenticationSessionService: WKNavigationDelegate {
         }
 
         if matchesCallback(url: url, for: activeRequest) {
-            logStore.append("Auth session matched callback navigation: \(url.absoluteString)")
+            logStore.append("Auth session matched callback for request \(activeRequest.uuid.uuidString).")
             completeAuthentication(with: url)
             decisionHandler(.cancel)
             return
@@ -255,7 +255,7 @@ extension AuthenticationSessionService: NSWindowDelegate {
         }
 
         self.activeRequest = nil
-        logStore.append("Auth session window closed by user for \(activeRequest.url.absoluteString).")
+        logStore.append("Auth session window closed by user for \(activeRequest.uuid.uuidString).")
         activeRequest.cancelWithError(Self.canceledLoginError)
     }
 }
