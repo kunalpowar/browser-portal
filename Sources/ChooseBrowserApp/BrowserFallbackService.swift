@@ -77,7 +77,8 @@ final class BrowserFallbackService {
         logStore.append("Opening URL in browser \(applicationURL.lastPathComponent): \(url.absoluteString)")
         let configuration = NSWorkspace.OpenConfiguration()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            workspace.open([url], withApplicationAt: applicationURL, configuration: configuration) { _, error in
+            // AppKit can call this handler on a background queue. Swift 6.1 needs explicit sendability.
+            workspace.open([url], withApplicationAt: applicationURL, configuration: configuration) { @Sendable _, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
