@@ -190,6 +190,15 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
                     case let .routeInChrome(decision):
                         logStore.append("Dispatching URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(url.absoluteString)")
                         let logStore = self.logStore
+                        let chromeApplication = NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").first
+                        // The profile command bypasses NSWorkspace, so transfer focus explicitly.
+                        if #available(macOS 14.0, *) {
+                            if let chromeApplication {
+                                NSApplication.shared.yieldActivation(to: chromeApplication)
+                            } else {
+                                NSApplication.shared.yieldActivation(toApplicationWithBundleIdentifier: "com.google.Chrome")
+                            }
+                        }
                         let pid = try await Task.detached(priority: .userInitiated) { [self] in
                             try BrowserRouter().open(decision) { [weak self] status in
                                 logStore.append("Chrome command process exited with status \(status) for \(url.absoluteString). This does not confirm tab display.")
@@ -202,6 +211,10 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
                             }
                         }.value
                         logStore.append("Chrome command process started with pid \(pid).")
+                        if let chromeApplication {
+                            let activationRequested = chromeApplication.activate(options: [])
+                            logStore.append("Requested focus for running Chrome: \(activationRequested). This does not confirm tab display.")
+                        }
                     case let .openInChromeLastUsedProfile(chromeURL):
                         let applicationURL = try await Task.detached(priority: .userInitiated) {
                             try ChromeEnvironment.discover().appURL
