@@ -189,19 +189,27 @@ final class URLHandlerAppDelegate: NSObject, NSApplicationDelegate {
                     switch plan {
                     case let .routeInChrome(decision):
                         logStore.append("Dispatching URL to Chrome profile \(decision.profileEmail ?? decision.profileDirectoryName): \(url.absoluteString)")
-                        let logStore = self.logStore
-                        let pid = try await Task.detached(priority: .userInitiated) { [self] in
-                            try BrowserRouter().open(decision) { [weak self] status in
-                                logStore.append("Chrome command process exited with status \(status) for \(url.absoluteString). This does not confirm tab display.")
-                                if status != 0, let self {
-                                    Task { @MainActor in
-                                        await self.routingTask?.value
-                                        self.present(error: ChooseBrowserError.chromeExited(status))
-                                    }
-                                }
-                            }
+                        let applicationURL = try await Task.detached(priority: .userInitiated) {
+                            try ChromeEnvironment.discover().appURL
                         }.value
-                        logStore.append("Chrome command process started with pid \(pid).")
+                        let chromeApplication = NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").first
+                        if #available(macOS 14.0, *) {
+                            if let chromeApplication {
+                                NSApplication.shared.yieldActivation(to: chromeApplication)
+                            } else {
+                                NSApplication.shared.yieldActivation(toApplicationWithBundleIdentifier: "com.google.Chrome")
+                            }
+                        }
+                        try await browserFallbackService.openChromeProfile(
+                            url: decision.url,
+                            in: applicationURL,
+                            profileDirectory: decision.profileDirectoryName
+                        )
+                        logStore.append("macOS accepted the Chrome profile launch request. This does not confirm tab display.")
+                        if let chromeApplication {
+                            let activationRequested = chromeApplication.activate(options: [])
+                            logStore.append("Requested focus for running Chrome: \(activationRequested). This does not confirm tab display.")
+                        }
                     case let .openInChromeLastUsedProfile(chromeURL):
                         let applicationURL = try await Task.detached(priority: .userInitiated) {
                             try ChromeEnvironment.discover().appURL
