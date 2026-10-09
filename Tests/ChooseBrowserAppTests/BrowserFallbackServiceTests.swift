@@ -18,3 +18,24 @@ func nativeBrowserLaunchFailureIsReturnedToTheCaller() async throws {
     await logStore.flush()
     #expect(didFail)
 }
+
+@MainActor
+@Test
+func nativeChromeProfileLaunchFailureIsReturnedToTheCaller() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let logStore = AppLogStore(logFileURL: directory.appendingPathComponent("app.log"))
+    let service = BrowserFallbackService(logStore: logStore)
+    var didFail = false
+    do {
+        try await service.openChromeProfile(
+            url: URL(string: "https://example.com")!,
+            in: directory.appendingPathComponent("Missing.app"),
+            profileDirectory: "Profile 4"
+        )
+    } catch {
+        didFail = true
+    }
+    await logStore.flush()
+    #expect(didFail)
+}

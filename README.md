@@ -57,6 +57,6 @@ That installs the app locally and avoids the Homebrew path entirely.
 
 ## Link Handling and Logs
 
-Chrome's last-used-profile mode uses the native macOS open request. Rules for a specific profile pass the profile argument to Chrome on a background thread. For profile links, Browser Portal also yields focus to Chrome on macOS 14 and later and requests activation of an existing Chrome instance after the command starts. Chrome can still take time to display the requested tab.
+Chrome's last-used-profile mode uses the native macOS URL open request. Rules for a specific profile use the native macOS application launch request with a new launch instance so Chrome receives the profile and URL arguments, including when it is already running. Chrome forwards the command to its existing process. Browser Portal also yields focus to Chrome on macOS 14 and later and requests activation of an existing Chrome instance after macOS accepts the launch. Launch acceptance does not confirm that the tab has appeared.
 
 The event log records dispatch time, not the time when a tab appears or a page loads. Log writes run in the background. The log is limited to 1 MiB, and the Logs tab shows up to 1,000 recent entries. URL paths, credentials, queries, and fragments are removed from log messages. Authentication sessions are logged by request ID.

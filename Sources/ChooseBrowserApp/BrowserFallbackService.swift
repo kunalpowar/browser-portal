@@ -88,6 +88,24 @@ final class BrowserFallbackService {
         }
     }
 
+    func openChromeProfile(url: URL, in applicationURL: URL, profileDirectory: String) async throws {
+        logStore.append("Opening URL through macOS in Chrome profile \(profileDirectory): \(url.absoluteString)")
+        let configuration = NSWorkspace.OpenConfiguration()
+        // Launch arguments are ignored when macOS reuses an existing application instance.
+        configuration.createsNewApplicationInstance = true
+        configuration.activates = true
+        configuration.arguments = ["--profile-directory=\(profileDirectory)", "--new-tab", url.absoluteString]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            workspace.openApplication(at: applicationURL, configuration: configuration) { @Sendable _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     @objc
     private func handleApplicationDidActivate(_ notification: Notification) {
         guard let runningApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
